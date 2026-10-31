@@ -74,7 +74,9 @@ def mobileGlRendererConfig = { String backendType ->
         env.add([type: 'ToggleableEnv', key: 'SFPEW_NO_LIST_BATCH', value: '1',
                  title: [key: 'sfpew_no_list_batch_title'], toggle: false])
     }
-    def glLib = mobileGlUseSfpew ? '**|libSimpleFPEWrapper.so' : '**|libMobileGL.so'
+    def glLib = !mobileGlPrebuiltLibsDir.isEmpty()
+            ? '**|libRendererProxy.so'
+            : (mobileGlUseSfpew ? '**|libSimpleFPEWrapper.so' : '**|libMobileGL.so')
     def config = [
             displayName    : mobileGlUseSfpew ? 'MobileGL SFPEW' : 'MobileGL',
             rendererId     : 'opengles3',
@@ -177,7 +179,7 @@ android {
             manifestPlaceholders = [
                     appLabel: 'MobileGL Espryt',
                     des     : 'MobileGL Espryt',
-                    renderer: mobileGlUseSfpew ? 'MobileGL SFPEW:libSimpleFPEWrapper.so:/libSimpleFPEWrapper.so' : 'MobileGL Espryt:libMobileGL.so:/libMobileGL.so',
+                    renderer: !mobileGlPrebuiltLibsDir.isEmpty() ? 'MobileGL Proxy:libRendererProxy.so:/libRendererProxy.so' : (mobileGlUseSfpew ? 'MobileGL SFPEW:libSimpleFPEWrapper.so:/libSimpleFPEWrapper.so' : 'MobileGL Espryt:libMobileGL.so:/libMobileGL.so'),
                     boatEnv : env,
                     pojavEnv: env,
             ]
@@ -191,7 +193,7 @@ android {
             manifestPlaceholders = [
                     appLabel: 'MobileGL Magma',
                     des     : 'MobileGL Magma',
-                    renderer: mobileGlUseSfpew ? 'MobileGL SFPEW:libSimpleFPEWrapper.so:/libSimpleFPEWrapper.so' : 'MobileGL Magma:libMobileGL.so:/libMobileGL.so',
+                    renderer: !mobileGlPrebuiltLibsDir.isEmpty() ? 'MobileGL Proxy:libRendererProxy.so:/libRendererProxy.so' : (mobileGlUseSfpew ? 'MobileGL SFPEW:libSimpleFPEWrapper.so:/libSimpleFPEWrapper.so' : 'MobileGL Magma:libMobileGL.so:/libMobileGL.so'),
                     boatEnv : env,
                     pojavEnv: env,
             ]
@@ -282,6 +284,7 @@ dependencies {
     implementation 'androidx.compose.ui:ui-tooling-preview'
     implementation 'androidx.compose.material3:material3'
     implementation 'androidx.compose.animation:animation'
+    implementation 'androidx.core:core-ktx:1.13.1'
     implementation 'androidx.compose.material:material-icons-core:1.6.8'
     implementation 'androidx.lifecycle:lifecycle-runtime-compose:2.8.2'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'

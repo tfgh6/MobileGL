@@ -37,6 +37,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -91,6 +95,7 @@ import top.mobilegl.plugin.driver.DriverRepository
 import top.mobilegl.plugin.driver.ExternalLibrary
 import top.mobilegl.plugin.driver.ExternalLibraryRepository
 import top.mobilegl.plugin.selftest.BackendReport
+import top.mobilegl.plugin.selftest.GlInfoProbe
 import top.mobilegl.plugin.selftest.SelfTestRepository
 import top.mobilegl.plugin.selftest.SelfTestResult
 import java.util.Locale
@@ -169,11 +174,13 @@ fun MobileGlPluginApp() {
         var lastTab by remember { mutableIntStateOf(0) }
         var report by remember { mutableStateOf(selfTestRepository.cached()) }
         var probing by remember { mutableStateOf(report == null) }
+        var glInfo by remember { mutableStateOf<GlInfoProbe.Info?>(null) }
 
         LaunchedEffect(Unit) {
+            glInfo = withContext(Dispatchers.IO) { GlInfoProbe.query() }
             if (report == null) {
                 probing = true
-                report = selfTestRepository.run(config)
+                report = selfTestRepository.run(config, config.selfTestLibraryPath ?: config.activeRendererLibPath)
                 probing = false
             }
         }
@@ -198,6 +205,7 @@ fun MobileGlPluginApp() {
 
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
+            contentWindowInsets = WindowInsets.safeDrawing,
             topBar = {
                 AnimatedVisibility(
                     visible = isSubPage,
@@ -240,6 +248,13 @@ fun MobileGlPluginApp() {
                         }
                     }
                 }
+                AnimatedVisibility(
+                    visible = isSubPage,
+                    enter = slideInVertically { it } + fadeIn(),
+                    exit = slideOutVertically { it } + fadeOut(),
+                ) {
+                    BottomBackCard(onClick = { dest = TABS[lastTab].dest })
+                }
             },
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
@@ -264,6 +279,7 @@ fun MobileGlPluginApp() {
                             onOpenDrivers = { lastTab = 0; dest = Dest.Drivers },
                             onOpenConfig = { lastTab = 0; dest = Dest.ConfigFile },
                             onOpenSelfTest = { lastTab = 0; dest = Dest.SelfTest },
+                            glInfo = glInfo,
                         )
                         Dest.Settings -> SettingsTab(
                             config = config,
@@ -296,8 +312,9 @@ fun MobileGlPluginApp() {
                                 persist(config.copy(activeDriverId = pack.id, activeIcdPath = icd?.absolutePath))
                             },
                             onClearActive = { persist(config.copy(activeDriverId = null, activeIcdPath = null)) },
-                            onSelectSelfTestLibrary = { lib ->
-                                persist(config.copy(selfTestLibraryPath = lib?.file?.absolutePath))
+                            onActivateLibrary = { lib ->
+                                val shared = lib?.sharedFile?.absolutePath ?: lib?.file?.absolutePath
+                                persist(config.copy(activeRendererLibPath = shared, selfTestLibraryPath = lib?.file?.absolutePath))
                             },
                         )
                         Dest.ConfigFile -> ConfigScreen(
@@ -329,8 +346,8 @@ private fun shareReport(context: Context, repository: SelfTestRepository) {
 private fun MobileGlTopBar(title: String, onBack: () -> Unit) {
     TopAppBar(
         title = { Text(title, fontWeight = FontWeight.SemiBold) },
+        modifier = Modifier.windowInsetsPadding(WindowInsets.displayCutout),
         colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
-        navigationIcon = { TextButton(onClick = onBack) { Text("返回") } },
     )
 }
 
@@ -358,7 +375,7 @@ private data class DeviceInfo(
     val memory: String,
 )
 
-private fun deviceInfo(context: Context, report: SelfTestResult?): DeviceInfo {
+private fun deviceInfo(context: Context, report: SelfTestResult?, glInfo: GlInfoProbe.Info?): DeviceInfo {
     val glesReport = report?.backends?.firstOrNull { it.backend.contains("gles", true) }
     val vulkanReport = report?.backends?.firstOrNull { it.backend.contains("vulkan", true) }
     val glesRenderer = glesReport?.renderer.orEmpty()
@@ -396,9 +413,10 @@ private fun HomeTab(
     onOpenDrivers: () -> Unit,
     onOpenConfig: () -> Unit,
     onOpenSelfTest: () -> Unit,
+    glInfo: GlInfoProbe.Info?,
 ) {
     val context = LocalContext.current
-    val info = remember(report) { deviceInfo(context, report) }
+    val info = remember(report, glInfo) { deviceInfo(context, report, glInfo) }
     val authorized = hasAllFilesAccess()
     val sfpewActive = config.sfpewEnabled && BuildConfig.SFPEW_BUNDLED
     val summary = buildString {
@@ -414,7 +432,7 @@ private fun HomeTab(
             .padding(horizontal = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(44.dp))
         Row {
             Text("Mobile", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
             Text("GL", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = ORANGE)
@@ -479,7 +497,7 @@ private fun HomeTab(
                 ) {
                     Column(Modifier.weight(1f)) {
                         Text("启用 SFPEW 包装器", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                        Text("关闭仅影响配置；游戏内库由安装包决定", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("由 libRendererProxy 启动时读取；切换后重启游戏生效", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(checked = config.sfpewEnabled, onCheckedChange = onToggleSfpew)
                 }
@@ -577,6 +595,27 @@ private fun InfoTab(
         Spacer(Modifier.height(12.dp))
         TextButton(onClick = onShareReport) { Text("分享自检报告") }
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun BottomBackCard(onClick: () -> Unit) {
+    Box(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            onClick = onClick,
+        ) {
+            Text(
+                "返回",
+                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                textAlign = TextAlign.Center,
+                color = BLUE,
+                fontWeight = FontWeight.Medium,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+        }
     }
 }
 

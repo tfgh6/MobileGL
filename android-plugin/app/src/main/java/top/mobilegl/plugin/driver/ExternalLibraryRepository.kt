@@ -21,6 +21,7 @@ import java.security.MessageDigest
 data class ExternalLibrary(
     val name: String,
     val file: File,
+    val sharedFile: File?,
     val size: Long,
     val sha256: String,
     val importedAt: Long,
@@ -31,6 +32,9 @@ data class ExternalLibrary(
 
 class ExternalLibraryRepository(private val context: Context) {
     private val root = File(context.filesDir, "libraries")
+    private val sharedRoot = File("/sdcard/MobileGL/libs")
+
+    fun sharedDir(): File = sharedRoot
 
     fun list(): List<ExternalLibrary> {
         root.mkdirs()
@@ -42,6 +46,7 @@ class ExternalLibraryRepository(private val context: Context) {
                     ExternalLibrary(
                         name = file.name,
                         file = file,
+                        sharedFile = File(sharedRoot, file.name).takeIf { it.isFile },
                         size = file.length(),
                         sha256 = sha256(file),
                         importedAt = file.lastModified(),
@@ -68,13 +73,22 @@ class ExternalLibraryRepository(private val context: Context) {
                 temp.copyTo(target, overwrite = true)
                 temp.delete()
             }
-            ExternalLibrary(name, target, target.length(), sha256(target), System.currentTimeMillis())
+            // Shared copy: the game process (launcher UID) cannot read this app's
+            // filesDir, but libRendererProxy.so can memfd-load a .so from /sdcard.
+            val shared = runCatching {
+                sharedRoot.mkdirs()
+                val out = File(sharedRoot, name)
+                target.copyTo(out, overwrite = true)
+                out
+            }.getOrNull()
+            ExternalLibrary(name, target, shared, target.length(), sha256(target), System.currentTimeMillis())
         }
     }
 
     fun delete(library: ExternalLibrary): Boolean {
         val canonicalRoot = root.canonicalPath + File.separator
         if (!library.file.canonicalPath.startsWith(canonicalRoot)) return false
+        library.sharedFile?.delete()
         return library.file.delete()
     }
 

@@ -35,6 +35,9 @@ class RuntimeConfigWriter(private val context: Context) {
                     appendLine(key + "=" + value)
                 }
             }
+            // Read by libRendererProxy.so before the launcher starts the game.
+            appendLine("RENDERER_MODE=" + if (config.sfpewEnabled) "sfpew" else "direct")
+            config.activeRendererLibPath?.takeIf { it.isNotBlank() }?.let { appendLine("RENDERER_SO=" + it) }
         }
 
         val shared = File("/sdcard/MobileGL/runtime.conf")

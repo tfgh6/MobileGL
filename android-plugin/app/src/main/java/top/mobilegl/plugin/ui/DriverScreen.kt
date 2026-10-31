@@ -51,7 +51,7 @@ fun DriverScreen(
     onRefresh: () -> Unit,
     onActivate: (DriverPack) -> Unit,
     onClearActive: () -> Unit,
-    onSelectSelfTestLibrary: (ExternalLibrary?) -> Unit,
+    onActivateLibrary: (ExternalLibrary?) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -90,7 +90,10 @@ fun DriverScreen(
     }
 
     val sfpewBundled = remember {
-        runCatching { File(context.applicationInfo.nativeLibraryDir, "libSimpleFPEWrapper.so").isFile }.getOrDefault(false)
+        runCatching {
+            File(context.applicationInfo.nativeLibraryDir, "libSfpew_real.so").isFile ||
+                File(context.applicationInfo.nativeLibraryDir, "libSimpleFPEWrapper.so").isFile
+        }.getOrDefault(false)
     }
 
     Column(
@@ -102,15 +105,14 @@ fun DriverScreen(
     ) {
         SectionCard("渲染器组件") {
             Text(
-                "本 APK 的渲染链：启动器 → libSimpleFPEWrapper.so → SFPEW_EGL 指定的后端（默认 libMobileGL.so）。",
+                "本 APK 的渲染链：启动器 → libRendererProxy.so →（SFPEW 包装器 或 直连）→ libMobileGL.so。",
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(6.dp))
             InfoRow("SFPEW 包装器", if (sfpewBundled) "已内置" else "未内置（可用外部库页导入自检）")
             InfoRow("后端库", "libMobileGL.so（APK 内置）")
             Text(
-                "说明：游戏进程由启动器加载 APK 内库；从外部导入的 .so 用于自检/验证与后续重新打包，" +
-                    "无法在运行时替换启动器已加载的库。",
+                "说明：启用外部库后，libRendererProxy.so 会在启动游戏时按配置加载（memfd），驱动自检也用它。",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -119,7 +121,7 @@ fun DriverScreen(
         SectionCard("外部 .so（更新渲染器 / SFPEW）") {
             Text(
                 "可导入官方 Action 构建的 libMobileGL.so，或 libSimpleFPEWrapper.so。会校验 arm64 ELF。" +
-                    "选中“自检库”后，驱动自检会优先加载它。",
+                    "启用后：启动游戏时由 libRendererProxy.so 读取所选库；驱动自检也用它。",
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
@@ -145,9 +147,11 @@ fun DriverScreen(
                 externalLibraries.forEach { library ->
                     ExternalLibraryRow(
                         library = library,
-                        selected = config.selfTestLibraryPath == library.file.absolutePath,
-                        onSelect = {
-                            onSelectSelfTestLibrary(if (config.selfTestLibraryPath == library.file.absolutePath) null else library)
+                        selected = (library.sharedFile?.absolutePath ?: library.file.absolutePath) == config.activeRendererLibPath,
+                        onActivate = {
+                            onActivateLibrary(
+                                if ((library.sharedFile?.absolutePath ?: library.file.absolutePath) == config.activeRendererLibPath) null else library
+                            )
                         },
                         onDelete = { pendingDeleteLibrary = library },
                     )
@@ -204,7 +208,7 @@ fun DriverScreen(
             text = { Text("确认删除 " + library.name + "？") },
             confirmButton = {
                 TextButton(onClick = {
-                    if (config.selfTestLibraryPath == library.file.absolutePath) onSelectSelfTestLibrary(null)
+                    if ((library.sharedFile?.absolutePath ?: library.file.absolutePath) == config.activeRendererLibPath) onActivateLibrary(null)
                     message = if (externalRepository.delete(library)) "已删除 " + library.name else "删除失败"
                     pendingDeleteLibrary = null
                     onRefresh()
@@ -219,7 +223,7 @@ fun DriverScreen(
 private fun ExternalLibraryRow(
     library: ExternalLibrary,
     selected: Boolean,
-    onSelect: () -> Unit,
+    onActivate: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val kind = when {
@@ -236,12 +240,17 @@ private fun ExternalLibraryRow(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Text(
+                    "导入于 " + java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(library.importedAt)),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            if (selected) StatusPill("自检库", verdictColor("PASS"))
+            if (selected) StatusPill("已启用", verdictColor("PASS"))
         }
         Spacer(Modifier.height(4.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onSelect) { Text(if (selected) "取消自检库" else "设为自检库") }
+            OutlinedButton(onClick = onActivate) { Text(if (selected) "取消启用" else "启用") }
             OutlinedButton(onClick = onDelete) { Text("删除") }
         }
     }

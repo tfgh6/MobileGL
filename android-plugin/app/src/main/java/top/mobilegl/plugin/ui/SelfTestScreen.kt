@@ -65,9 +65,10 @@ fun SelfTestScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(8.dp))
-                if (!config.selfTestLibraryPath.isNullOrBlank()) {
+                val activeLib = config.selfTestLibraryPath ?: config.activeRendererLibPath
+                if (!activeLib.isNullOrBlank()) {
                     Text(
-                        "使用外部库自检：" + config.selfTestLibraryPath,
+                        "使用外部库自检：" + activeLib,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -79,7 +80,7 @@ fun SelfTestScreen(
                             if (!running) {
                                 scope.launch {
                                     running = true
-                                    result = repository.run(config, config.selfTestLibraryPath)
+                                    result = repository.run(config, config.selfTestLibraryPath ?: config.activeRendererLibPath)
                                     running = false
                                 }
                             }

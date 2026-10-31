@@ -104,9 +104,9 @@ fun SettingsTab(
                 SwitchRow(
                     title = "启用 SFPEW 包装器",
                     subtitle = if (config.sfpewEnabled)
-                        "启动器加载 libSimpleFPEWrapper.so 再转给 MobileGL"
+                        "libRendererProxy 在启动游戏时按配置选择 SFPEW 或直连；切换后重启游戏生效"
                     else
-                        "当前配置按直连 MobileGL 使用；游戏内请安装直连版 APK",
+                        "当前配置按直连 MobileGL 使用；代理会在下次启动游戏时读取",
                     checked = config.sfpewEnabled,
                 ) {
                     val updatedEnv = LinkedHashMap(config.env)
