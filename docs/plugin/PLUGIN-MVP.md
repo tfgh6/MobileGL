@@ -193,6 +193,34 @@ GitHub Actions 提供两条流水线：
 
 ### 11.3 外部 .so 导入/更新
 
+## 12. MobileGlues 风格 UI、返回手势与 SFPEW 开关（2026-10-31 深夜）
+
+### 12.1 UI 参照 MobileGlues 2.0
+
+- 浅色主题：白色卡片 + 淡蓝背景，蓝色分组标题（渲染 / MobileGL / SFPEW / 配置），大号页面标题；
+- 底部 3 个 Tab：**首页 / 设置 / 信息**（选中项蓝色高亮）；
+- 首页保留“驱动管理 / 启动配置 / 驱动自检”入口卡片；
+- 设置页用 MobileGlues 式分组 + 开关列表；
+- 信息页按“应用 / 组件 / 关于”分组，展示版本、GitHub、许可证、兼容启动器。
+
+### 12.2 系统返回手势
+
+- 清单增加 `android:enableOnBackInvokedCallback="true"`；
+- Compose 侧使用 `BackHandler`：子页面 → 返回上一个 Tab；设置/信息 Tab → 回首页；首页 → 交还系统退出。
+
+### 12.3 SFPEW 启用/关闭开关
+
+- `PluginConfig.sfpewEnabled` 持久化，设置页“渲染”分组第一项即开关；
+- 启动器在启动游戏时加载 APK 内固定库，运行时无法换掉，因此提供两个安装包：
+  - `MobileGL-SFPEW-MagmaPlugin-debug.apk`（libSimpleFPEWrapper + MobileGL，开关可用）；
+  - `MobileGL-Direct-MagmaPlugin-debug.apk`（仅 MobileGL，开关显示为直连版不可启用）。
+- 直连版同一套 UI，`BuildConfig.SFPEW_BUNDLED` 决定开关是否可用。
+
+### 12.4 产物
+
+- `dist/MobileGL-SFPEW-MagmaPlugin-debug.apk`（17.2 MB）
+- `dist/MobileGL-Direct-MagmaPlugin-debug.apk`（17.0 MB）
+
 驱动页新增“外部 .so”区块：
 
 - 从 SAF 导入 `libMobileGL.so` 或 `libSimpleFPEWrapper.so`，校验 64 位 little-endian AArch64 ELF，存到 `filesDir/libraries`；

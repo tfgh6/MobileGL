@@ -134,6 +134,9 @@ android {
         compose true
         buildConfig true
     }
+    defaultConfig {
+        buildConfigField 'boolean', 'SFPEW_BUNDLED', mobileGlUseSfpew.toString()
+    }
 
     defaultConfig {
         minSdk 26
