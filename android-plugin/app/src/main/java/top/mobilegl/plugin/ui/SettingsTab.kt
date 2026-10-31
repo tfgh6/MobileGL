@@ -18,10 +18,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -30,15 +35,23 @@ import androidx.compose.ui.unit.dp
 import top.mobilegl.plugin.BuildConfig
 import top.mobilegl.plugin.config.PluginConfig
 import top.mobilegl.plugin.config.RuntimeConfigWriter
+import top.mobilegl.plugin.driver.DriverPack
+import top.mobilegl.plugin.driver.ExternalLibrary
 
 @Composable
 fun SettingsTab(
     config: PluginConfig,
     runtime: RuntimeConfigWriter.Status,
+    drivers: List<DriverPack>,
+    externalLibraries: List<ExternalLibrary>,
     onSave: (PluginConfig) -> Unit,
     onOpenConfigFile: () -> Unit,
+    onOpenDrivers: () -> Unit,
+    onOpenSelfTest: () -> Unit,
 ) {
     val context = LocalContext.current
+    var backend by remember(config.backend) { mutableStateOf(config.backend) }
+    var sfpewBackend by remember(config.env["SFPEW_EGL"]) { mutableStateOf(config.env["SFPEW_EGL"] ?: "libMobileGL.so") }
 
     fun env(key: String, fallback: String = "0"): String = config.env[key] ?: fallback
     fun setEnv(key: String, value: String) {
@@ -46,24 +59,54 @@ fun SettingsTab(
         updated[key] = value
         onSave(config.copy(env = updated))
     }
+    fun setBackend(choice: String) {
+        backend = choice
+        val updated = LinkedHashMap(config.env)
+        updated["MOBILEGL_BACKEND_TYPE"] = choice
+        onSave(config.copy(backend = choice, env = updated))
+    }
+    fun setSfpewBackend(choice: String) {
+        sfpewBackend = choice
+        setEnv("SFPEW_EGL", choice)
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 20.dp),
     ) {
         BigTitle("设置")
 
         SectionLabel("渲染")
         InfoCard {
+            ValueChoiceRow(
+                title = "渲染后端",
+                options = listOf("DirectVulkan", "DirectGLES"),
+                selected = backend,
+                onSelect = { setBackend(it) },
+            )
+            DividerLine()
+            SwitchRow("使用 ANGLE", "Espryt 后端用 ANGLE 作为 GLES 实现", isOn(env("MOBILEGL_ESPRYT_USE_ANGLE"))) {
+                setEnv("MOBILEGL_ESPRYT_USE_ANGLE", onOff(it))
+            }
+            DividerLine()
             if (BuildConfig.SFPEW_BUNDLED) {
+                if (config.sfpewEnabled) {
+                    ValueChoiceRow(
+                        title = "SFPEW 后端",
+                        options = listOf("libMobileGL.so", "libEGL.so"),
+                        selected = sfpewBackend,
+                        onSelect = { setSfpewBackend(it) },
+                    )
+                    DividerLine()
+                }
                 SwitchRow(
                     title = "启用 SFPEW 包装器",
                     subtitle = if (config.sfpewEnabled)
-                        "启动器加载 libSimpleFPEWrapper.so 再转给 MobileGL；关闭请改用直连版 APK"
+                        "启动器加载 libSimpleFPEWrapper.so 再转给 MobileGL"
                     else
-                        "当前配置按直连 MobileGL 使用；SFPEW 选项隐藏",
+                        "当前配置按直连 MobileGL 使用；游戏内请安装直连版 APK",
                     checked = config.sfpewEnabled,
                 ) {
                     val updatedEnv = LinkedHashMap(config.env)
@@ -73,31 +116,13 @@ fun SettingsTab(
             } else {
                 SwitchRow(
                     title = "SFPEW 包装器",
-                    subtitle = "当前安装包是直连版，不含 libSimpleFPEWrapper.so；安装 SFPEW 版才能启用",
+                    subtitle = "当前安装包是直连版，不含 libSimpleFPEWrapper.so",
                     checked = false,
                 ) { }
             }
-            DividerLine()
-            ValueChoiceRow(
-                title = "渲染后端",
-                options = listOf("DirectVulkan", "DirectGLES"),
-                selected = config.backend,
-            ) { choice ->
-                val updatedEnv = LinkedHashMap(config.env)
-                updatedEnv["MOBILEGL_BACKEND_TYPE"] = choice
-                onSave(config.copy(backend = choice, env = updatedEnv))
-            }
-            if (config.sfpewEnabled && BuildConfig.SFPEW_BUNDLED) {
-                DividerLine()
-                ValueChoiceRow(
-                    title = "SFPEW 后端",
-                    options = listOf("libMobileGL.so", "libEGL.so"),
-                    selected = env("SFPEW_EGL", "libMobileGL.so"),
-                ) { choice -> setEnv("SFPEW_EGL", choice) }
-            }
         }
 
-        SectionLabel("MobileGL")
+        SectionLabel("高级设置 · MobileGL")
         InfoCard {
             SwitchRow("禁用 GPU 计时器查询", "影响性能面板；MobileGL 会关闭 timer query", isOn(env("MOBILEGL_DISABLE_TIMERQUERY"))) {
                 setEnv("MOBILEGL_DISABLE_TIMERQUERY", onOff(it))
@@ -113,7 +138,7 @@ fun SettingsTab(
         }
 
         if (config.sfpewEnabled && BuildConfig.SFPEW_BUNDLED) {
-            SectionLabel("SFPEW")
+            SectionLabel("高级设置 · SFPEW")
             InfoCard {
                 SwitchRow("宽松上下文", "允许更宽松的上下文创建（兼容旧模组）", isOn(env("SFPEW_RELAXED_CONTEXT"))) {
                     setEnv("SFPEW_RELAXED_CONTEXT", onOff(it))
@@ -127,6 +152,15 @@ fun SettingsTab(
                     setEnv("SFPEW_NO_LIST_BATCH", onOff(it))
                 }
             }
+        }
+
+        SectionLabel("组件")
+        InfoCard {
+            LinkRow("驱动包", drivers.size.toString() + " 个 · 管理 PanVK / Vulkan ICD", onOpenDrivers)
+            DividerLine()
+            LinkRow("外部库", externalLibraries.size.toString() + " 个 · 导入 .so 用于自检/更新", onOpenDrivers)
+            DividerLine()
+            LinkRow("驱动自检", "查看完整报告与失败项说明", onOpenSelfTest)
         }
 
         SectionLabel("配置")
@@ -151,7 +185,7 @@ fun SettingsTab(
         InfoCard {
             Text(
                 "游戏内生效的配置以 Zalith/FCL 的插件设置为准（fclPlugin_V2 的选项会由启动器注入环境变量）。" +
-                    "本页的开关会同步写入 runtime.conf；官方 MobileGL 库不读取它，本项目补丁库/后续驱动会读取。",
+                    "本页开关同步写入 runtime.conf；官方 MobileGL 库不读取它，本项目补丁库/后续驱动会读取。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 12.dp),
@@ -190,7 +224,7 @@ private fun ValueChoiceRow(title: String, options: List<String>, selected: Strin
 
 @Composable
 private fun DividerLine() {
-    androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
 }
 
 private fun isOn(value: String): Boolean = value == "1" || value.equals("true", true)

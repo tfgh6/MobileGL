@@ -1,10 +1,22 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 package top.mobilegl.plugin.ui
 
+import android.app.ActivityManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -34,28 +46,35 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import top.mobilegl.plugin.BuildConfig
 import top.mobilegl.plugin.config.ConfigStore
 import top.mobilegl.plugin.config.PluginConfig
@@ -64,13 +83,17 @@ import top.mobilegl.plugin.driver.DriverPack
 import top.mobilegl.plugin.driver.DriverRepository
 import top.mobilegl.plugin.driver.ExternalLibrary
 import top.mobilegl.plugin.driver.ExternalLibraryRepository
+import top.mobilegl.plugin.selftest.BackendReport
 import top.mobilegl.plugin.selftest.SelfTestRepository
 import top.mobilegl.plugin.selftest.SelfTestResult
+import java.util.Locale
 
 private val BLUE = Color(0xFF2F6BFF)
+private val ORANGE = Color(0xFFF57C00)
 private val PASS = Color(0xFF1A9C57)
 private val WARN = Color(0xFFB26A00)
 private val FAIL = Color(0xFFD1343C)
+private val LIGHT_BLUE_CARD = Color(0xFFEEF2FF)
 
 private sealed interface Dest {
     data object Home : Dest
@@ -89,6 +112,7 @@ private val TABS = listOf(
     Tab("信息", Icons.Filled.Info, Dest.Info),
 )
 
+@OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun MobileGlPluginApp() {
     MobileGlTheme {
@@ -98,6 +122,7 @@ fun MobileGlPluginApp() {
         val externalRepository = remember { ExternalLibraryRepository(context) }
         val selfTestRepository = remember { SelfTestRepository(context) }
         val runtimeWriter = remember { RuntimeConfigWriter(context) }
+        val scope = rememberCoroutineScope()
 
         var config by remember { mutableStateOf(store.load()) }
         var drivers by remember { mutableStateOf(driverRepository.list()) }
@@ -105,12 +130,27 @@ fun MobileGlPluginApp() {
         var runtimeStatus by remember { mutableStateOf(runtimeWriter.write(config)) }
         var dest by remember { mutableStateOf<Dest>(Dest.Home) }
         var lastTab by remember { mutableIntStateOf(0) }
+        var report by remember { mutableStateOf(selfTestRepository.cached()) }
+        var probing by remember { mutableStateOf(report == null) }
+
+        LaunchedEffect(Unit) {
+            if (report == null) {
+                probing = true
+                report = selfTestRepository.run(config)
+                probing = false
+            }
+        }
 
         fun persist(updated: PluginConfig) {
             config = updated
-            store.save(updated)
             top.mobilegl.plugin.NativeEnv.apply(updated)
-            runtimeStatus = runtimeWriter.write(updated)
+            scope.launch {
+                val status = withContext(Dispatchers.IO) {
+                    store.save(updated)
+                    runtimeWriter.write(updated)
+                }
+                runtimeStatus = status
+            }
         }
 
         val tabIndex = TABS.indexOfFirst { it.dest == dest }
@@ -158,58 +198,87 @@ fun MobileGlPluginApp() {
             },
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
-                when (dest) {
-                    Dest.Home -> HomeTab(
-                        config = config,
-                        drivers = drivers,
-                        externalLibraries = externalLibraries,
-                        lastReport = selfTestRepository.cached(),
-                        onOpenDrivers = { lastTab = 0; dest = Dest.Drivers },
-                        onOpenConfig = { lastTab = 0; dest = Dest.ConfigFile },
-                        onOpenSelfTest = { lastTab = 0; dest = Dest.SelfTest },
-                    )
-                    Dest.Settings -> SettingsTab(
-                        config = config,
-                        runtime = runtimeStatus,
-                        onSave = { persist(it) },
-                        onOpenConfigFile = { lastTab = 1; dest = Dest.ConfigFile },
-                    )
-                    Dest.Info -> InfoTab(
-                        config = config,
-                        drivers = drivers,
-                        externalLibraries = externalLibraries,
-                        lastReport = selfTestRepository.cached(),
-                        onOpenSelfTest = { lastTab = 2; dest = Dest.SelfTest },
-                        onOpenDrivers = { lastTab = 2; dest = Dest.Drivers },
-                    )
-                    Dest.Drivers -> DriverScreen(
-                        repository = driverRepository,
-                        externalRepository = externalRepository,
-                        drivers = drivers,
-                        externalLibraries = externalLibraries,
-                        config = config,
-                        onRefresh = {
-                            drivers = driverRepository.list()
-                            externalLibraries = externalRepository.list()
-                        },
-                        onActivate = { pack ->
-                            val icd = runCatching { driverRepository.generateIcd(pack) }.getOrNull()
-                            persist(config.copy(activeDriverId = pack.id, activeIcdPath = icd?.absolutePath))
-                        },
-                        onClearActive = { persist(config.copy(activeDriverId = null, activeIcdPath = null)) },
-                        onSelectSelfTestLibrary = { lib ->
-                            persist(config.copy(selfTestLibraryPath = lib?.file?.absolutePath))
-                        },
-                    )
-                    Dest.ConfigFile -> ConfigScreen(
-                        writer = runtimeWriter,
-                        status = runtimeStatus,
-                        onStatusChanged = { runtimeStatus = it },
-                    )
-                    Dest.SelfTest -> SelfTestScreen(repository = selfTestRepository, config = config)
+                AnimatedContent(
+                    targetState = dest,
+                    transitionSpec = {
+                        (fadeIn(tween(180)) + slideInHorizontally(tween(180)) { it / 10 }) togetherWith
+                            (fadeOut(tween(120)) + slideOutHorizontally(tween(120)) { -it / 10 })
+                    },
+                    label = "screen",
+                ) { target ->
+                    when (target) {
+                        Dest.Home -> HomeTab(
+                            config = config,
+                            report = report,
+                            probing = probing,
+                            drivers = drivers,
+                            externalCount = externalLibraries.size,
+                            onToggleSfpew = { enabled ->
+                                val updatedEnv = LinkedHashMap(config.env)
+                                updatedEnv["SFPEW_ENABLED"] = if (enabled) "1" else "0"
+                                persist(config.copy(sfpewEnabled = enabled, env = updatedEnv))
+                            },
+                            onOpenSettings = { lastTab = 1; dest = Dest.Settings },
+                            onOpenDrivers = { lastTab = 0; dest = Dest.Drivers },
+                            onOpenConfig = { lastTab = 0; dest = Dest.ConfigFile },
+                            onOpenSelfTest = { lastTab = 0; dest = Dest.SelfTest },
+                        )
+                        Dest.Settings -> SettingsTab(
+                            config = config,
+                            runtime = runtimeStatus,
+                            drivers = drivers,
+                            externalLibraries = externalLibraries,
+                            onSave = { persist(it) },
+                            onOpenConfigFile = { lastTab = 1; dest = Dest.ConfigFile },
+                            onOpenDrivers = { lastTab = 1; dest = Dest.Drivers },
+                            onOpenSelfTest = { lastTab = 1; dest = Dest.SelfTest },
+                        )
+                        Dest.Info -> InfoTab(
+                            config = config,
+                            lastReport = report,
+                            onOpenSelfTest = { lastTab = 2; dest = Dest.SelfTest },
+                            onShareReport = { shareReport(context, selfTestRepository) },
+                        )
+                        Dest.Drivers -> DriverScreen(
+                            repository = driverRepository,
+                            externalRepository = externalRepository,
+                            drivers = drivers,
+                            externalLibraries = externalLibraries,
+                            config = config,
+                            onRefresh = {
+                                drivers = driverRepository.list()
+                                externalLibraries = externalRepository.list()
+                            },
+                            onActivate = { pack ->
+                                val icd = runCatching { driverRepository.generateIcd(pack) }.getOrNull()
+                                persist(config.copy(activeDriverId = pack.id, activeIcdPath = icd?.absolutePath))
+                            },
+                            onClearActive = { persist(config.copy(activeDriverId = null, activeIcdPath = null)) },
+                            onSelectSelfTestLibrary = { lib ->
+                                persist(config.copy(selfTestLibraryPath = lib?.file?.absolutePath))
+                            },
+                        )
+                        Dest.ConfigFile -> ConfigScreen(
+                            writer = runtimeWriter,
+                            status = runtimeStatus,
+                            onStatusChanged = { runtimeStatus = it },
+                        )
+                        Dest.SelfTest -> SelfTestScreen(repository = selfTestRepository, config = config)
+                    }
                 }
             }
         }
+    }
+}
+
+private fun shareReport(context: Context, repository: SelfTestRepository) {
+    val text = repository.rawShareText()
+    if (text.isNotBlank()) {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        context.startActivity(Intent.createChooser(intent, "分享自检报告"))
     }
 }
 
@@ -240,82 +309,211 @@ private fun MobileGlTheme(content: @Composable () -> Unit) {
     )
 }
 
+private data class DeviceInfo(
+    val gpu: String,
+    val gles: String,
+    val vulkan: String,
+    val memory: String,
+)
+
+private fun deviceInfo(context: Context, report: SelfTestResult?): DeviceInfo {
+    val glesReport = report?.backends?.firstOrNull { it.backend.contains("gles", true) }
+    val vulkanReport = report?.backends?.firstOrNull { it.backend.contains("vulkan", true) }
+    val glesRenderer = glesReport?.renderer.orEmpty()
+    val vulkanRenderer = vulkanReport?.renderer.orEmpty()
+
+    val gpu = Regex("Mali-[A-Za-z0-9-]+(?: MC\\d+)?").find(vulkanRenderer)?.value
+        ?: Regex("Mali-[A-Za-z0-9-]+(?: MC\\d+)?").find(glesRenderer)?.value
+        ?: (vulkanRenderer.substringBefore('(').trim().ifEmpty { "未知 GPU" })
+    val gles = Regex("OpenGL ES [0-9.]+").find(glesRenderer)?.value ?: "未检测到"
+    val api = Regex("instance API ([0-9.]+)").find(
+        vulkanReport?.checks?.firstOrNull { it.name.contains("Vulkan instance") }?.detail.orEmpty()
+    )?.groupValues?.getOrNull(1)
+    val vulkan = when {
+        vulkanReport == null -> "未检测到"
+        !vulkanReport.available -> "不可用"
+        api != null -> "Vulkan " + api
+        else -> "Vulkan"
+    }
+    val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+    val mi = ActivityManager.MemoryInfo()
+    am.getMemoryInfo(mi)
+    val memory = String.format(Locale.US, "%.1f GB", mi.totalMem / 1024.0 / 1024.0 / 1024.0)
+    return DeviceInfo(gpu.ifBlank { "未知 GPU" }, gles, vulkan, memory)
+}
+
 @Composable
 private fun HomeTab(
     config: PluginConfig,
+    report: SelfTestResult?,
+    probing: Boolean,
     drivers: List<DriverPack>,
-    externalLibraries: List<ExternalLibrary>,
-    lastReport: SelfTestResult?,
+    externalCount: Int,
+    onToggleSfpew: (Boolean) -> Unit,
+    onOpenSettings: () -> Unit,
     onOpenDrivers: () -> Unit,
     onOpenConfig: () -> Unit,
     onOpenSelfTest: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val info = remember(report) { deviceInfo(context, report) }
+    val authorized = hasAllFilesAccess()
+    val sfpewActive = config.sfpewEnabled && BuildConfig.SFPEW_BUNDLED
+    val summary = buildString {
+        append(if (sfpewActive) "SFPEW" else "MobileGL")
+        if (info.gles != "未检测到") append(" · ").append(info.gles)
+        if (info.vulkan != "未检测到") append(" · ").append(info.vulkan)
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        BigTitle("MobileGL")
+        Spacer(Modifier.height(28.dp))
+        Row {
+            Text("Mobile", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+            Text("GL", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = ORANGE)
+        }
+        Text(
+            "v" + BuildConfig.VERSION_NAME,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Spacer(Modifier.height(16.dp))
+        PermissionPill(authorized) {
+            val packageUri = Uri.parse("package:" + context.packageName)
+            runCatching {
+                context.startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, packageUri))
+            }.onFailure {
+                context.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+            }
+        }
+        Spacer(Modifier.height(28.dp))
+
+        DeviceRow("GPU", if (probing) "检测中…" else info.gpu)
+        DeviceRow("OpenGL ES", if (probing) "检测中…" else info.gles)
+        DeviceRow("Vulkan", if (probing) "检测中…" else info.vulkan)
+        DeviceRow("内存", info.memory)
+
+        Spacer(Modifier.height(20.dp))
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = LIGHT_BLUE_CARD),
+            onClick = onOpenSettings,
         ) {
-            Column(Modifier.padding(20.dp)) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
                 Text(
-                    if (config.sfpewEnabled && BuildConfig.SFPEW_BUNDLED) "SFPEW → MobileGL" else "MobileGL 直连",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
+                    if (probing) "正在检测驱动信息…" else summary,
+                    style = MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center,
                 )
                 Text(
-                    "渲染后端：" + config.backend,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    "点击调整渲染器设置",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = BLUE,
+                    modifier = Modifier.padding(top = 6.dp),
                 )
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val verdict = lastReport?.backends?.joinToString(" / ") { it.verdict }
-                    if (verdict.isNullOrBlank()) {
-                        StatusPill("未自检", MaterialTheme.colorScheme.onSurfaceVariant)
-                    } else {
-                        StatusPill(verdict, verdictColor(verdict))
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+        if (BuildConfig.SFPEW_BUNDLED) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("启用 SFPEW 包装器", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                        Text("关闭仅影响配置；游戏内库由安装包决定", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    StatusPill(if (config.sfpewEnabled && BuildConfig.SFPEW_BUNDLED) "SFPEW 已启用" else "直连模式", if (config.sfpewEnabled && BuildConfig.SFPEW_BUNDLED) BLUE else MaterialTheme.colorScheme.onSurfaceVariant)
+                    Switch(checked = config.sfpewEnabled, onCheckedChange = onToggleSfpew)
                 }
             }
         }
 
-        SectionLabel("功能")
+        Spacer(Modifier.height(20.dp))
+        SectionLabel("工具")
         ActionRow("驱动管理", "驱动包、外部 .so 导入/更新", onOpenDrivers)
         ActionRow("启动配置", "runtime.conf 与环境变量", onOpenConfig)
         ActionRow("驱动自检", "失败项、替代方案与影响说明", onOpenSelfTest)
 
-        SectionLabel("状态")
-        InfoCard {
-            InfoRow("设备", Build.MODEL + " · Android " + Build.VERSION.RELEASE)
-            InfoRow("驱动包", drivers.size.toString() + " 个")
-            InfoRow("外部库", externalLibraries.size.toString() + " 个")
-            InfoRow("配置", if (config.sfpewEnabled && BuildConfig.SFPEW_BUNDLED) "SFPEW 包装器" else "直连 MobileGL")
-        }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "设备：" + Build.MODEL + " · Android " + Build.VERSION.RELEASE + " · 驱动包 " + drivers.size + " 个 · 外部库 " + externalCount + " 个",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun PermissionPill(authorized: Boolean, onClick: () -> Unit) {
+    Surface(
+        color = if (authorized) BLUE.copy(alpha = 0.12f) else Color(0xFFFFE9E9),
+        shape = RoundedCornerShape(50),
+        modifier = Modifier.clip(RoundedCornerShape(50)).clickable(onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(if (authorized) BLUE else FAIL)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(if (authorized) "已授权" else "未授权 · 点击授权", color = if (authorized) BLUE else FAIL, fontWeight = FontWeight.Medium)
+        }
+    }
+}
+
+@Composable
+private fun DeviceRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.weight(1f))
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(2.2f),
+        )
     }
 }
 
 @Composable
 private fun InfoTab(
     config: PluginConfig,
-    drivers: List<DriverPack>,
-    externalLibraries: List<ExternalLibrary>,
     lastReport: SelfTestResult?,
     onOpenSelfTest: () -> Unit,
-    onOpenDrivers: () -> Unit,
+    onShareReport: () -> Unit,
 ) {
     val context = LocalContext.current
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 20.dp),
     ) {
         BigTitle("信息")
         SectionLabel("应用")
@@ -325,11 +523,6 @@ private fun InfoTab(
                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/MobileGL-Dev")))
             }
             LinkRow("驱动自检", "查看完整报告与说明", onOpenSelfTest)
-        }
-        SectionLabel("组件")
-        InfoCard {
-            LinkRow("驱动包", drivers.size.toString() + " 个", onOpenDrivers)
-            LinkRow("外部库", externalLibraries.size.toString() + " 个", onOpenDrivers)
             val verdict = lastReport?.backends?.joinToString(" / ") { it.verdict }
             InfoRow("最近自检", verdict?.ifBlank { "未运行" } ?: "未运行")
         }
@@ -339,6 +532,8 @@ private fun InfoTab(
             InfoRow("开源许可证", "GNU LGPL-3.0")
             InfoRow("兼容启动器", "FCL · Zalith · Pojav")
         }
+        Spacer(Modifier.height(12.dp))
+        TextButton(onClick = onShareReport) { Text("分享自检报告") }
         Spacer(Modifier.height(24.dp))
     }
 }
@@ -450,3 +645,6 @@ fun verdictColor(verdict: String): Color = when (verdict.uppercase()) {
     "UNSUPPORTED", "FAIL" -> FAIL
     else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
+
+private fun hasAllFilesAccess(): Boolean =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) Environment.isExternalStorageManager() else true

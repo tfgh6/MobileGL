@@ -44,6 +44,9 @@ MOBILEGL_BACKEND_TYPE=DirectVulkan
 LIBGL_ES=3
 POJAV_RENDERER=opengles3
 SFPEW_EGL=libMobileGL.so
+SFPEW_RELAXED_CONTEXT=0
+SFPEW_NO_MULTIDRAWARRAYS=0
+SFPEW_NO_LIST_BATCH=0
 """
 
 @Composable
@@ -66,36 +69,34 @@ fun ConfigScreen(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = 20.dp),
     ) {
-        SectionCard("启动配置文件") {
-            Text(
-                status.sharedPath,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        BigTitle("启动配置")
+
+        SectionLabel("文件")
+        InfoCard {
+            Text(status.sharedPath, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
                 if (status.sharedWritten) "已写入共享路径（启动器进程可读）" else "尚未写入共享路径：" + (status.reason ?: ""),
                 style = MaterialTheme.typography.bodySmall,
             )
-            Spacer(Modifier.height(6.dp))
             Text(
-                "说明：官方 CI 构建的 libMobileGL.so 只读环境变量，不读这个文件；" +
-                    "本项目补丁库、以及后续 PanVK 驱动会读它。Zalith/FCL 的“渲染器设置”里也能直接改同名选项。",
+                "官方 CI 的 libMobileGL.so 只读环境变量、不读此文件；本项目补丁库与后续 PanVK 驱动会读取。",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp),
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { save() }) { Text("保存配置") }
                 OutlinedButton(onClick = { text = writer.readShared() ?: DEFAULT_CONFIG }) { Text("重新读取") }
-                OutlinedButton(onClick = {
-                    text = DEFAULT_CONFIG
-                }) { Text("恢复模板") }
             }
-            if (!hasAllFilesAccess()) {
-                OutlinedButton(onClick = { openAllFilesSettings(context) }) { Text("授予“所有文件访问权限”") }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { text = DEFAULT_CONFIG }) { Text("恢复模板") }
+                if (!hasAllFilesAccess()) {
+                    OutlinedButton(onClick = { openAllFilesSettings(context) }) { Text("授予所有文件访问权限") }
+                }
             }
             message?.let {
                 Spacer(Modifier.height(6.dp))
@@ -103,9 +104,10 @@ fun ConfigScreen(
             }
         }
 
-        SectionCard("常用选项") {
+        SectionLabel("全部选项")
+        InfoCard {
             Text(
-                "点击即改上面的配置文件；保存后写入 /sdcard/MobileGL/runtime.conf。",
+                "这里是完整配置项（不是常用项）；点选后仍要点“保存配置”写入文件。",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -122,25 +124,27 @@ fun ConfigScreen(
                 value = readKey(text, "SFPEW_EGL", "libMobileGL.so"),
                 onSelect = { text = setKey(text, "SFPEW_EGL", it) },
             )
-            OptionToggle("禁用 GPU 计时器查询", "MOBILEGL_DISABLE_TIMERQUERY", text) { text = setKey(text, "MOBILEGL_DISABLE_TIMERQUERY", if (it) "1" else "0") }
-            OptionToggle("禁用 Vulkan subgroup", "MOBILEGL_DISABLE_SUBGROUP", text) { text = setKey(text, "MOBILEGL_DISABLE_SUBGROUP", if (it) "1" else "0") }
-            OptionToggle("R11G11B10F 回退格式", "MOBILEGL_VULKAN_R11G11B10F_FALLBACK", text) { text = setKey(text, "MOBILEGL_VULKAN_R11G11B10F_FALLBACK", if (it) "1" else "0") }
-            OptionToggle("Espryt 使用 ANGLE", "MOBILEGL_ESPRYT_USE_ANGLE", text) { text = setKey(text, "MOBILEGL_ESPRYT_USE_ANGLE", if (it) "1" else "0") }
-            OptionToggle("SFPEW 宽松上下文", "SFPEW_RELAXED_CONTEXT", text) { text = setKey(text, "SFPEW_RELAXED_CONTEXT", if (it) "1" else "0") }
-            OptionToggle("SFPEW 关闭 MultiDrawArrays", "SFPEW_NO_MULTIDRAWARRAYS", text) { text = setKey(text, "SFPEW_NO_MULTIDRAWARRAYS", if (it) "1" else "0") }
-            OptionToggle("SFPEW 关闭列表批处理", "SFPEW_NO_LIST_BATCH", text) { text = setKey(text, "SFPEW_NO_LIST_BATCH", if (it) "1" else "0") }
+            OptionToggle("禁用 GPU 计时器查询", "MOBILEGL_DISABLE_TIMERQUERY", text) { text = setKey(text, "MOBILEGL_DISABLE_TIMERQUERY", onOff(it)) }
+            OptionToggle("禁用 Vulkan subgroup", "MOBILEGL_DISABLE_SUBGROUP", text) { text = setKey(text, "MOBILEGL_DISABLE_SUBGROUP", onOff(it)) }
+            OptionToggle("R11G11B10F 回退格式", "MOBILEGL_VULKAN_R11G11B10F_FALLBACK", text) { text = setKey(text, "MOBILEGL_VULKAN_R11G11B10F_FALLBACK", onOff(it)) }
+            OptionToggle("Coherent AS flush", "MOBILEGL_COHERENT_AS_FLUSH", text) { text = setKey(text, "MOBILEGL_COHERENT_AS_FLUSH", onOff(it)) }
+            OptionToggle("宽松语义", "MOBILEGL_RELAXED_SEMANTICS", text) { text = setKey(text, "MOBILEGL_RELAXED_SEMANTICS", onOff(it)) }
+            OptionToggle("SFPEW 宽松上下文", "SFPEW_RELAXED_CONTEXT", text) { text = setKey(text, "SFPEW_RELAXED_CONTEXT", onOff(it)) }
+            OptionToggle("SFPEW 关闭 MultiDrawArrays", "SFPEW_NO_MULTIDRAWARRAYS", text) { text = setKey(text, "SFPEW_NO_MULTIDRAWARRAYS", onOff(it)) }
+            OptionToggle("SFPEW 关闭列表批处理", "SFPEW_NO_LIST_BATCH", text) { text = setKey(text, "SFPEW_NO_LIST_BATCH", onOff(it)) }
+            OptionToggle("SFPEW 手动 mip 生成", "SFPEW_MANUAL_MIPGEN", text) { text = setKey(text, "SFPEW_MANUAL_MIPGEN", onOff(it)) }
         }
 
-        SectionCard("原始配置") {
+        SectionLabel("原始文件")
+        InfoCard {
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 10,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                minLines = 12,
                 textStyle = MaterialTheme.typography.bodySmall,
                 label = { Text("runtime.conf") },
             )
-            Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = {
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -155,6 +159,7 @@ fun ConfigScreen(
                 }) { Text("分享") }
             }
         }
+        Spacer(Modifier.height(24.dp))
     }
 }
 
@@ -204,11 +209,11 @@ private fun setKey(text: String, key: String, value: String): String {
             break
         }
     }
-    if (!replaced) {
-        lines.add(key + "=" + value)
-    }
+    if (!replaced) lines.add(key + "=" + value)
     return lines.joinToString("\n")
 }
+
+private fun onOff(value: Boolean): String = if (value) "1" else "0"
 
 private fun hasAllFilesAccess(): Boolean =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) Environment.isExternalStorageManager() else true

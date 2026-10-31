@@ -247,3 +247,19 @@ GitHub Actions 提供两条流水线：
 
 > 注意：官方 CI 的 libMobileGL.so 只读环境变量，不读 `/sdcard/MobileGL/runtime.conf`；因此“启动配置”页对官方库不生效。
 > 真正生效的配置入口是 Zalith/FCL 的插件设置（`fclPlugin_V2` 的 selectable/toggleable），或换用本项目补丁库后再用 runtime.conf。
+
+## 13. 对齐 MobileGlues 2.0 主界面与设置层级（2026-10-31）
+
+- 首页按 MobileGlues 2.0 重排：居中大标题 `Mobile` + `GL`（GL 橙色）、版本号、授权胶囊；
+- 设备信息行：GPU / OpenGL ES / Vulkan / 内存，来自 Driver POST 结果 + `ActivityManager`（Vulkan API 从 `Vulkan instance` 的 detail 解析）；
+- 首页驱动卡改为浅蓝圆角卡（渲染链摘要 + “点击调整渲染器设置”），并加 SFPEW 快捷开关；
+- Tab/子页切换加 `AnimatedContent` 淡入 + 轻微横移动画；
+- 设置页：渲染分组内依次为 后端 / ANGLE / SFPEW 后端 / SFPEW 开关；MobileGL 与 SFPEW 选项归入“高级设置”；
+- “组件”从信息页移到设置页，位于“高级设置 · SFPEW”与“配置”之间；
+- 后端选项改用本地 state 即时高亮，配置持久化改为 IO 协程，修掉“点了卡住/点不动旁边选项”的延迟；
+- 启动配置页改为“全部选项”（非“常用”），恢复模板按钮单独一行；ANGLE 开关移出到设置页渲染分组。
+
+产物：
+
+    dist/MobileGL-SFPEW-MagmaPlugin-debug.apk   19.33 MB
+    dist/MobileGL-Direct-MagmaPlugin-debug.apk  17.05 MB
