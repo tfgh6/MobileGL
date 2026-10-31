@@ -40,6 +40,24 @@
             android:exported="true"
             android:theme="@style/Theme.MobileGLPlugin.NoDisplay" />
 
+        <!-- Zalith Launcher / RendererPlugin-v2 configuration -->
+        <meta-data
+            android:name="fclPlugin_V2"
+            android:resource="@string/config" />
+        <meta-data
+            android:name="mobilegl_backend_type_title"
+            android:resource="@string/mobilegl_backend_type_title" />
+        <meta-data
+            android:name="mobilegl_disable_timerquery_title"
+            android:resource="@string/mobilegl_disable_timerquery_title" />
+        <meta-data
+            android:name="mobilegl_disable_subgroup_title"
+            android:resource="@string/mobilegl_disable_subgroup_title" />
+        <meta-data
+            android:name="mobilegl_r11g11b10f_fallback_title"
+            android:resource="@string/mobilegl_r11g11b10f_fallback_title" />
+
+        <!-- Legacy FCL / Pojav plugin descriptor (kept for compatibility) -->
         <meta-data
             android:name="fclPlugin"
             android:value="true" />

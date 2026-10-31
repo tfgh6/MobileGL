@@ -1,0 +1,96 @@
+name: Plugin Debug APK (unsigned pipeline, installable)
+
+# This workflow does not need repository signing secrets: it builds the debug
+# variants, which Gradle signs with the standard debug key. Use it to get an
+# installable plugin APK for Zalith / FCL from any fork.
+
+on:
+  push:
+    branches:
+      - dev
+      - feat/panvk-android-plugin
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-debug:
+    runs-on: ubuntu-latest
+    env:
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPRESS: "true"
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 4G
+      CCACHE_NOHASHDIR: "true"
+      MOBILEGL_CMAKE_COMPILER_LAUNCHER: ccache
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set artifact metadata
+        run: |
+          echo "date_today=$(date +'%Y-%m-%d')" >> "$GITHUB_ENV"
+          echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ${{ runner.os }}-debug-apk-ccache-v1
+          restore-keys: |
+            ${{ runner.os }}-debug-apk-ccache-
+
+      - name: Install ccache
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ccache
+          ccache --version
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: false
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses >/dev/null
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager "ndk;27.3.13750724"
+          echo "ndk.dir=$ANDROID_HOME/ndk/27.3.13750724" >> android-plugin/local.properties
+
+      - name: Update glslang external sources
+        working-directory: 3rdparty/glslang
+        run: python update_glslang_sources.py
+
+      - name: Build debug plugin APKs
+        run: |
+          gradle --no-daemon -p android-plugin \
+            :app:assembleEsprytPluginDebug \
+            :app:assembleMagmaPluginDebug \
+            -Pmobilegl.logLevel=MOBILEGL_LOG_LEVEL_INFO \
+            --parallel --max-workers "$(nproc)"
+
+      - name: Show ccache stats
+        if: always()
+        run: ccache --show-stats
+
+      - name: Upload debug plugin APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: MobileGL-plugin-debug-${{ env.date_today }}-${{ env.short_sha }}
+          path: android-plugin/app/build/outputs/apk/*Plugin/debug/*.apk
+          if-no-files-found: error

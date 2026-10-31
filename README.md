@@ -14,7 +14,7 @@ MobileGL is a *free* and *open-source* project that implements a desktop **OpenG
 
 > [!NOTE]
 >
-> **Status:** In development. Parts of the codebase are incomplete. Current short-term target: **OpenGL 3.3 (Core Profile)**.
+> **Status:** In development. Parts of the codebase are incomplete. Current short-term target: **OpenGL 4.2 (Core Profile)**.
 
 ## Project positioning
 
@@ -42,14 +42,16 @@ MobileGL reuses several open-source projects:
 * **SPIRV-Cross** by **KhronosGroup** - [Apache License 2.0](https://github.com/KhronosGroup/SPIRV-Cross/blob/master/LICENSE): [github](https://github.com/KhronosGroup/SPIRV-Cross)
 * **glslang** by **KhronosGroup** - [Various Licenses](https://github.com/KhronosGroup/glslang/blob/main/LICENSE.txt): [github](https://github.com/KhronosGroup/glslang)
 * **DiligentCore** by **Diligent Graphics** - [Apache License 2.0](https://github.com/DiligentGraphics/DiligentCore/blob/master/License.txt): [github](https://github.com/DiligentGraphics/DiligentCore)
+* **flat_hash_map** by **Malte Skarupke** - [Boost Software License 1.0](https://github.com/MobileGL-Dev/flat_hash_map/blob/master/LICENSE): [github](https://github.com/MobileGL-Dev/flat_hash_map)
 
 Refer to each component's repository for exact license texts. Any bundled third-party code in this repository is included under the upstream project's license.
 
 ## Compatibility & target
 
-* **Short-term target:** `OpenGL 3.3 (Core Profile)`.
+* **Short-term target:** `OpenGL 4.2 (Core Profile)`.
 * **Current development focus:**
-  * `MG_State` and `MG_Impl` for `OpenGL 3.3 (Core Profile)`
+  * Performance improvement
+  * `MG_State` and `MG_Impl` for `OpenGL 4.2 (Core Profile)`
   * `Direct (Vulkan)` backend
   * `Direct (OpenGL ES)` backend
 
@@ -154,12 +156,18 @@ MobileGL supports runtime configuration via environment variables.
 | Variable                | Description                                      | Allowed Values                       | Default        |
 |-------------------------|--------------------------------------------------|--------------------------------------|----------------|
 | `MOBILEGL_BACKEND_TYPE` | Select active backend implementation at startup. | `DirectGLES`, `DirectVulkan`         | `DirectGLES`   |
+| `MOBILEGL_DISABLE_TIMERQUERY` | Disable GPU timer-query exposure and use. | `0`, `1` | `0` |
+| `MOBILEGL_ESPRYT_USE_ANGLE` | Load ANGLE EGL/GLES libraries. | `0`, `1` | `0` |
+| `MOBILEGL_MAGMA_DISABLE_SUBGROUP` | Disable Vulkan shader subgroup support. | `0`, `1` | `0` |
+| `MOBILEGL_ADVERTISE_FP64` | Advertise `GL_ARB_gpu_shader_fp64`. GLSL `double`/`dvec`/`dmat` compile and run either way - they are narrowed to 32 bits - so this only changes whether an application is told it has 64-bit precision, which it does not. | `0`, `1` | `0` |
+| `MOBILEGL_MAGMA_R11G11B10F_FALLBACK` | Use Magma's R11G11B10F format fallback. | `0`, `1` | `0` |
+| `MOBILEGL_MAGMA_FRAMESINFLIGHT` | Set Magma frames in flight. | Integer `1`–`64` | `3` |
+| `MOBILEGL_MAGMA_MAX_DRAWS_PER_COMMAND_BUFFER` | Draws and dispatches Magma records into one command buffer before it submits the buffer mid-frame and continues on a fresh one. `0` never splits. | Integer `0`–`16777216` | `16384` |
+| `MOBILEGL_MAGMA_DESCRIPTOR_TRIM_FRAMES` | Frames a frame slot's descriptor pools must stay under a quarter full before Magma frees the slot's cached descriptor sets and grown pools. `0` never trims. | Integer `0`–`1048576` | `120` |
+| `MOBILEGL_ESPRYT_AVOID_SAMPLER_MIPMAP_MIN_FILTER` | Avoid sampler mipmap minification filters. | `0`, `1` | `0` |
+| `MOBILEGL_COHERENT_AS_FLUSH` | Treat persistent `GL_MAP_FLUSH_EXPLICIT_BIT` maps as coherent (app-compat for engines like Flywheel that never flush them). | `0`, `1` | `0` |
+| `MOBILEGL_ESPRYT_FORCE_DS_READBACK_EMULATION` | Always emulate depth/stencil `glReadPixels`/`glGetTexImage` by shader sampling on Espryt, instead of using the driver's own depth/stencil readback where it has one. | `0`, `1` | `0` |
 | `VK_ICD_FILENAMES`      | Select the Vulkan ICD used by the Vulkan loader. | Path to an ICD JSON file             | Loader default |
-
-## Notice
-
-* MobileGL is **not** production-ready currently.
-* Some `OpenGL 3.3 (Core Profile)` features are still missing or under development.
 
 ## License
 

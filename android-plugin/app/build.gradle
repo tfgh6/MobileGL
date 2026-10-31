@@ -34,6 +34,38 @@ def mobileGlAbiFilters = {
             .findAll { !it.isEmpty() }
 }
 
+// RendererPlugin-v2 (Zalith Launcher) config. This mirrors the upstream Kotlin DSL
+// output: a JSON document stored in @string/config and referenced from the
+// "fclPlugin_V2" manifest meta-data. The launcher substitutes the "**|" prefix with
+// the plugin's real nativeLibraryDir at launch time.
+def mobileGlRendererConfig = { String backendType ->
+    def values = ['DirectGLES', 'DirectVulkan']
+    def env = [
+            [type: 'NormalEnv', key: 'LIBGL_ES', value: '3'],
+            [type: 'NormalEnv', key: 'POJAV_RENDERER', value: 'opengles3'],
+            [type: 'SelectableEnv', key: 'MOBILEGL_BACKEND_TYPE',
+             title: [key: 'mobilegl_backend_type_title'], check: true,
+             items: [defaultValue: backendType, values: values]],
+            [type: 'ToggleableEnv', key: 'MOBILEGL_DISABLE_TIMERQUERY', value: '1',
+             title: [key: 'mobilegl_disable_timerquery_title'], toggle: false],
+            [type: 'ToggleableEnv', key: 'MOBILEGL_DISABLE_SUBGROUP', value: '1',
+             title: [key: 'mobilegl_disable_subgroup_title'], toggle: false],
+            [type: 'ToggleableEnv', key: 'MOBILEGL_VULKAN_R11G11B10F_FALLBACK', value: '1',
+             title: [key: 'mobilegl_r11g11b10f_fallback_title'], toggle: false],
+    ]
+    def config = [
+            displayName    : 'MobileGL',
+            rendererId     : 'opengles3',
+            rendererGLPath : '**|libMobileGL.so',
+            rendererEGLPath: '**|libMobileGL.so',
+            dlopenLibPaths : [],
+            env            : env,
+            minMCVer       : null,
+            maxMCVer       : null,
+    ]
+    groovy.json.JsonOutput.toJson(config).replace('"', '\\"')
+}
+
 // Calendar versioning: major = two-digit year, minor = month. The build
 // identifier is the short commit hash, giving version names like 26.07.4e558ee.
 def mobileGlVersionMajor = 26
@@ -116,6 +148,7 @@ android {
             applicationId 'top.mobilegl.plugin.espryt'
             def env = mobileGlEnvString('DirectGLES')
             resValue 'string', 'mobilegl_default_backend', 'DirectGLES'
+            resValue 'string', 'config', mobileGlRendererConfig('DirectGLES')
             manifestPlaceholders = [
                     appLabel: 'MobileGL Espryt',
                     des     : 'MobileGL Espryt',
@@ -129,6 +162,7 @@ android {
             applicationId 'top.mobilegl.plugin.magma'
             def env = mobileGlEnvString('DirectVulkan')
             resValue 'string', 'mobilegl_default_backend', 'DirectVulkan'
+            resValue 'string', 'config', mobileGlRendererConfig('DirectVulkan')
             manifestPlaceholders = [
                     appLabel: 'MobileGL Magma',
                     des     : 'MobileGL Magma',

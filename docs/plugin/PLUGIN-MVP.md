@@ -126,3 +126,34 @@ zip 根目录必须有 `driver.json`：
 2. 用一组假驱动包（占位 `.so` 不行，需真实 arm64 ELF）验证导入/ICD 生成链路。
 3. 与启动器约定配置读取路径；在真实 Minecraft 启动流程里验证 `runtime.conf` 生效。
 4. PanVK 阶段：kbase 补丁栈构建 → 自带 Khronos loader（patch Android 分支）→ `MOBILEGL_VULKAN_LOADER` 注入 → 扩展矩阵对比。
+
+## 8. Zalith / FCL 兼容
+
+两种启动器走两套插件协议，本 APK 同时声明：
+
+| 启动器 | 协议 | 本 APK 的实现 |
+|---|---|---|
+| FCL（Fold Craft Launcher）及兼容实现 | legacy meta-data | `fclPlugin=true` + `renderer` / `boatEnv` / `pojavEnv` 占位符（按 flavor 生成 DirectGLES/DirectVulkan 版本） |
+| Zalith Launcher（RendererPlugin-v2） | `fclPlugin_V2` 指向 `@string/config` 的 JSON | `mobileGlRendererConfig()` 在 Gradle 里生成与上游 DSL 相同结构的 JSON（displayName/rendererId/rendererGLPath/rendererEGLPath/dlopenLibPaths/env/minMCVer/maxMCVer），并用 `**|libMobileGL.so` 标记由启动器替换为 nativeLibraryDir |
+
+Zalith 配置项（可在启动器内直接调）：
+
+- `MOBILEGL_BACKEND_TYPE`：DirectGLES / DirectVulkan（selectable）；
+- `MOBILEGL_DISABLE_TIMERQUERY`、`MOBILEGL_DISABLE_SUBGROUP`、`MOBILEGL_VULKAN_R11G11B10F_FALLBACK`（toggleable，默认关）；
+- 标题字符串通过 `meta-data` 索引到 `strings.xml`。
+
+> 说明：上游 dev 已用 Kotlin DSL 迁移到 RendererPlugin-v2；本分支基于较早的 dev，因此用 Gradle 生成等价 JSON，不引入 JitPack DSL 依赖，CI 更稳。
+
+## 9. 构建入口（CLI）
+
+```bash
+# 有 Android SDK/NDK/Gradle 的机器（debug 变体自动用 debug 签名，可直接安装）
+ANDROID_HOME=$HOME/Android/Sdk ./tools/build-plugin.sh
+# Windows
+.\tools\build-plugin.ps1 -SdkRoot "$env:LOCALAPPDATA\Android\Sdk"
+```
+
+GitHub Actions 提供两条流水线：
+
+- `.github/workflows/plugin-debug.yml`：**不需要签名 secrets**，构建 espryt/magma 的 debug APK 并上传，适合 fork 直接跑；
+- `.github/workflows/apk.yml`：原有 release 流水线（需要 `SIGNING_*` secrets；没有 secrets 时产物未签名，会卡在 apk 验签步骤，因此签 APK 请用 debug 流水线）。
