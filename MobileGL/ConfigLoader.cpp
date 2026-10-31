@@ -8,6 +8,10 @@
 
 #include "Config.h"
 
+#include <cctype>
+#include <cstdlib>
+#include <fstream>
+
 #ifndef _WIN32
 extern char** environ;
 #endif
@@ -25,12 +29,73 @@ namespace MobileGL::MG_ConfigLoader {
         return (key.compare(0, 6, "LIBGL_") == 0 || key.compare(0, 9, "MOBILEGL_") == 0);
     }
 
+    static String TrimConfigToken(const String& value) {
+        SizeT begin = 0;
+        SizeT end = value.size();
+        while (begin < end && std::isspace(static_cast<unsigned char>(value[begin]))) {
+            ++begin;
+        }
+        while (end > begin && std::isspace(static_cast<unsigned char>(value[end - 1]))) {
+            --end;
+        }
+        return value.substr(begin, end - begin);
+    }
+
+    // Reads the plugin-managed runtime configuration before the process environment is
+    // scanned. Keys use the same MOBILEGL_*/LIBGL_* names as environment variables, and a real
+    // environment variable with the same name wins because it is inserted afterwards.
+    //
+    // Path: MOBILEGL_CONFIG_FILE if set, otherwise /sdcard/MobileGL/runtime.conf on Android.
+    // A missing or unreadable file is not an error: desktop builds and sandboxed processes
+    // keep the environment-only behavior.
+    static void LoadRuntimeConfigFile() {
+        const char* configuredPath = std::getenv("MOBILEGL_CONFIG_FILE");
+#ifdef __ANDROID__
+        String path = (configuredPath != nullptr && configuredPath[0] != '\0')
+                          ? String(configuredPath)
+                          : String("/sdcard/MobileGL/runtime.conf");
+#else
+        if (configuredPath == nullptr || configuredPath[0] == '\0') {
+            return;
+        }
+        String path(configuredPath);
+#endif
+        std::ifstream stream(path);
+        if (!stream.is_open()) {
+            return;
+        }
+        String line;
+        while (std::getline(stream, line)) {
+            const SizeT comment = line.find('#');
+            if (comment != String::npos) {
+                line = line.substr(0, comment);
+            }
+            line = TrimConfigToken(line);
+            if (line.empty()) {
+                continue;
+            }
+            const SizeT equals = line.find('=');
+            if (equals == String::npos) {
+                continue;
+            }
+            const String key = TrimConfigToken(line.substr(0, equals));
+            const String value = TrimConfigToken(line.substr(equals + 1));
+            if (key.empty() || !IsAcceptedPrefix(key)) {
+                continue;
+            }
+            (*acceptedEnvVariablesMap)[key] = value;
+            MGLOG_D("Config: Accepted runtime config: %s=%s", key.c_str(), value.c_str());
+        }
+    }
+
     inline void InitializeAcceptedEnvVariables() {
         if (!acceptedEnvVariablesMap) {
             acceptedEnvVariablesMap = MakeUnique<UnorderedMap<String, String>>();
         } else {
             acceptedEnvVariablesMap->clear();
         }
+
+        LoadRuntimeConfigFile();
 
         char** envPtr = nullptr;
 

@@ -425,5 +425,16 @@ public final class PostActivity extends Activity {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
+    /**
+     * Synchronous entry point for the Compose UI. Loads libMobileGL if needed and
+     * returns the raw POST report JSON. Callers must run this off the UI thread and
+     * must call {@link top.mobilegl.plugin.NativeEnv#apply} first so the probe sees
+     * the configured environment.
+     */
+    public static String runDriverPostJson() {
+        ensureNativeLoaded();
+        return nativeRunDriverPost();
+    }
+
     private static native String nativeRunDriverPost();
 }

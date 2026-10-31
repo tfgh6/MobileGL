@@ -242,3 +242,13 @@ android-plugin/
 - [ ] 是否有 Linux/WSL2 构建机；GitHub Actions 是否可用（私有 fork 的 Actions 权限）。
 - [ ] 签名密钥由谁管理（沿用上游 secrets 还是自建）。
 - [ ] 若 G1 不通过，是否接受 Alt-A（厂商驱动增强）作为主线。
+
+## 9. 方向调整（2026-10-31 用户指示）
+
+- 用户设备已 **root**，可用 **KernelSU 模块**；主要场景是 **Minecraft Java（Pojav 系启动器）**。
+- **优先做插件 APK**（配置 UI + 驱动自检 + 驱动管理，形态对齐 MobileGlues 2.0），PanVK/开源驱动暂时后置。
+- 插件 MVP 已落库，见 [PLUGIN-MVP.md](../plugin/PLUGIN-MVP.md)；本文件中 P1–P3 的 PanVK 工作转为 P8 阶段，待插件稳定后重启。
+- 关键前置结论（调研已收口）：
+  - 系统 Android Vulkan loader 不读 `VK_ICD_FILENAMES/VK_DRIVER_FILES`，自捆绑 Khronos loader 必须 patch Android 构建分支；
+  - 上游 PanVK 只支持 panthor/panfrost，stock 天玑需 kbase 补丁栈；换驱动不保证获得缺失扩展。
+- 驱动注入在插件阶段只做"驱动包管理 + ICD 物化 + 配置持久化"，不改变渲染路径。

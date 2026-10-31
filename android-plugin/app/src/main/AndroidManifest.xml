@@ -1,21 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- The plugin writes /sdcard/MobileGL/runtime.conf, which the launcher's game process
+         reads when it loads libMobileGL.so. All-files access is optional: without it the UI
+         falls back to a private copy and says so. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
     <application
         android:hasCode="true"
         android:label="${appLabel}"
         android:theme="@style/Theme.MobileGLPlugin">
 
         <activity
-            android:name=".PostActivity"
+            android:name=".ui.MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
             android:exported="true"
+            android:label="${appLabel}"
             android:theme="@style/Theme.MobileGLPlugin">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".PostActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
+            android:exported="true"
+            android:theme="@style/Theme.MobileGLPlugin" />
 
         <activity
             android:name=".PluginActivity"
