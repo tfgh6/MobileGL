@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -34,14 +35,28 @@ static void trim(char *s) {
     if (p != s) memmove(s, p, strlen(p) + 1);
 }
 
+static int truthy(const char *value) {
+    if (!value || !value[0]) return 0;
+    return strcmp(value, "0") != 0 && strcasecmp(value, "false") != 0;
+}
+
 static void read_config(char *mode, size_t mode_len, char *so, size_t so_len) {
     mode[0] = 0;
     so[0] = 0;
+    // Environment is the fallback used when the plugin-managed file is not
+    // readable from the game process (launcher without storage permission).
+    const char *env_mode = getenv("RENDERER_MODE");
+    if (env_mode && env_mode[0]) snprintf(mode, mode_len, "%s", env_mode);
+    const char *env_enabled = getenv("SFPEW_ENABLED");
+    if (env_enabled && env_enabled[0]) snprintf(mode, mode_len, "%s", truthy(env_enabled) ? "sfpew" : "direct");
+    const char *env_so = getenv("RENDERER_SO");
+    if (env_so && env_so[0]) snprintf(so, so_len, "%s", env_so);
     const char *env = getenv("MOBILEGL_CONFIG_FILE");
     const char *path = (env && env[0]) ? env : "/sdcard/MobileGL/runtime.conf";
     FILE *file = fopen(path, "r");
     if (!file) {
-        LOGE("cannot read %s, using defaults", path);
+        LOGE("cannot read %s, using env/defaults", path);
+        if (!mode[0]) snprintf(mode, mode_len, "direct");
         return;
     }
     char line[1024];
@@ -58,9 +73,12 @@ static void read_config(char *mode, size_t mode_len, char *so, size_t so_len) {
             snprintf(mode, mode_len, "%s", value);
         } else if (strcmp(line, "RENDERER_SO") == 0) {
             snprintf(so, so_len, "%s", value);
+        } else if (strcmp(line, "SFPEW_ENABLED") == 0) {
+            snprintf(mode, mode_len, "%s", truthy(value) ? "sfpew" : "direct");
         }
     }
     fclose(file);
+    if (!mode[0]) snprintf(mode, mode_len, "direct");
 }
 
 // Load a .so that lives outside the app's native library directory: copy it into
@@ -109,23 +127,22 @@ static void *open_target(void) {
     const char *env_so = getenv("MOBILEGL_RENDERER_SO");
     if (env_so && env_so[0]) snprintf(so, sizeof(so), "%s", env_so);
 
-    if (strcmp(mode, "direct") == 0) {
-        if (so[0]) {
-            void *handle = (strchr(so, '/') ? memfd_load(so) : dlopen(so, RTLD_NOW | RTLD_LOCAL));
-            if (handle) {
-                LOGI("direct renderer: %s", so);
-                return handle;
-            }
-            LOGE("cannot load direct renderer %s: %s", so, dlerror());
-        }
-    } else {
+    if (strcmp(mode, "sfpew") == 0) {
         if (so[0]) setenv("SFPEW_EGL", so, 1);
         void *handle = dlopen("libSfpew_real.so", RTLD_NOW | RTLD_LOCAL);
         if (handle) {
-            LOGI("SFPEW wrapper, backend=%s", so[0] ? so : "libMobileGL.so");
+            LOGI("SFPEW wrapper enabled, backend=%s", so[0] ? so : "libMobileGL.so");
             return handle;
         }
-        LOGE("libSfpew_real.so not loadable: %s", dlerror());
+        LOGE("libSfpew_real.so not loadable: %s; falling back to direct", dlerror());
+    }
+    if (so[0]) {
+        void *handle = (strchr(so, '/') ? memfd_load(so) : dlopen(so, RTLD_NOW | RTLD_LOCAL));
+        if (handle) {
+            LOGI("direct renderer: %s", so);
+            return handle;
+        }
+        LOGE("cannot load direct renderer %s: %s", so, dlerror());
     }
     void *fallback = dlopen("libMobileGL.so", RTLD_NOW | RTLD_LOCAL);
     if (!fallback) LOGE("libMobileGL.so not loadable: %s", dlerror());
@@ -137,9 +154,13 @@ __attribute__((constructor)) static void init_renderer_proxy(void) {
     if (!target) {
         LOGE("no renderer backend available");
     }
+    // In SFPEW mode some Desktop-GL entry points are not wrapped by SFPEW.
+    // Resolve those directly from MobileGL instead of aborting mid-game.
+    void *direct = dlopen("libMobileGL.so", RTLD_NOW | RTLD_LOCAL);
     for (unsigned i = 0; i < g_proxy_symbol_count; ++i) {
         void *fn = target ? dlsym(target, g_proxy_symbols[i].name) : NULL;
+        if (!fn && direct) fn = dlsym(direct, g_proxy_symbols[i].name);
         *g_proxy_symbols[i].slot = fn ? fn : (void *)proxy_missing;
     }
-    LOGI("renderer proxy ready (%u symbols)", g_proxy_symbol_count);
+    LOGI("renderer proxy ready (%u symbols, %s)", g_proxy_symbol_count, getenv("RENDERER_MODE") ? "env" : "config");
 }
