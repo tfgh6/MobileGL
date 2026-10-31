@@ -10,12 +10,18 @@ import android.os.Environment
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -70,6 +76,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -111,6 +118,36 @@ private val TABS = listOf(
     Tab("设置", Icons.Filled.Settings, Dest.Settings),
     Tab("信息", Icons.Filled.Info, Dest.Info),
 )
+
+/** Same transition as MobileGlues 2.0 (MaterialApp.pageTransition). */
+private fun pageTransition(from: Dest, to: Dest): ContentTransform {
+    val fadeInSpec = tween<Float>(durationMillis = 260, easing = FastOutSlowInEasing)
+    val fadeOutSpec = tween<Float>(durationMillis = 180, easing = FastOutSlowInEasing)
+    val slide = tween<IntOffset>(durationMillis = 320, easing = FastOutSlowInEasing)
+
+    val tabOrdinal = { destination: Dest ->
+        when (destination) {
+            Dest.Home -> 0
+            Dest.Settings -> 1
+            Dest.Info -> 2
+            else -> -1
+        }
+    }
+    val fromOrdinal = tabOrdinal(from)
+    val toOrdinal = tabOrdinal(to)
+    val (enterFraction, exitFraction) = when {
+        toOrdinal < 0 -> 3 to -10
+        fromOrdinal < 0 -> -10 to 3
+        fromOrdinal >= 0 && toOrdinal > fromOrdinal -> 6 to -6
+        else -> -6 to 6
+    }
+
+    return ContentTransform(
+        targetContentEnter = slideInHorizontally(slide) { it / enterFraction } + fadeIn(fadeInSpec),
+        initialContentExit = slideOutHorizontally(slide) { it / exitFraction } + fadeOut(fadeOutSpec),
+        sizeTransform = SizeTransform(clip = false),
+    )
+}
 
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
@@ -162,7 +199,11 @@ fun MobileGlPluginApp() {
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             topBar = {
-                if (isSubPage) {
+                AnimatedVisibility(
+                    visible = isSubPage,
+                    enter = slideInVertically { -it } + fadeIn(),
+                    exit = slideOutVertically { -it } + fadeOut(),
+                ) {
                     MobileGlTopBar(
                         title = when (dest) {
                             Dest.Drivers -> "驱动管理"
@@ -175,7 +216,11 @@ fun MobileGlPluginApp() {
                 }
             },
             bottomBar = {
-                if (!isSubPage) {
+                AnimatedVisibility(
+                    visible = !isSubPage,
+                    enter = slideInVertically { it } + fadeIn(),
+                    exit = slideOutVertically { it } + fadeOut(),
+                ) {
                     NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                         TABS.forEachIndexed { index, tab ->
                             NavigationBarItem(
@@ -200,10 +245,7 @@ fun MobileGlPluginApp() {
             Box(Modifier.fillMaxSize().padding(padding)) {
                 AnimatedContent(
                     targetState = dest,
-                    transitionSpec = {
-                        (fadeIn(tween(180)) + slideInHorizontally(tween(180)) { it / 10 }) togetherWith
-                            (fadeOut(tween(120)) + slideOutHorizontally(tween(120)) { -it / 10 })
-                    },
+                    transitionSpec = { pageTransition(initialState, targetState) },
                     label = "screen",
                 ) { target ->
                     when (target) {

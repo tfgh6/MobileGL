@@ -263,3 +263,16 @@ GitHub Actions 提供两条流水线：
 
     dist/MobileGL-SFPEW-MagmaPlugin-debug.apk   19.33 MB
     dist/MobileGL-Direct-MagmaPlugin-debug.apk  17.05 MB
+
+## 14. 与 MobileGlues 2.0 完全一致的页面过渡（2026-10-31）
+
+按 MobileGlues-plugin `MaterialApp.kt` 的 `pageTransition()` 原样实现：
+
+- 淡入 `tween(260, FastOutSlowInEasing)`，淡出 `tween(180, FastOutSlowInEasing)`，位移动画 `tween(320, FastOutSlowInEasing)`；
+- 进入子页面：从右推入 `it / 3`，旧页向左退出 `it / -10`；
+- 从子页面返回：从左推入 `it / -10`，旧页向右退出 `it / 3`；
+- 同级 Tab 向前（Home→Settings→Info）：`6 / -6`；向后：`-6 / 6`；
+- `SizeTransform(clip = false)`，避免不同高度页面切换时被裁切；
+- 顶栏与底栏也按 MobileGlues 的方式用 `AnimatedVisibility` 垂直滑入/滑出。
+
+现在切换 Tab 与进出子页的方向、时长、缓动与 MobileGlues 2.0 一致。
