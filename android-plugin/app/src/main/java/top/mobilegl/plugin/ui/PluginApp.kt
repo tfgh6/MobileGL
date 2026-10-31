@@ -346,7 +346,6 @@ private fun shareReport(context: Context, repository: SelfTestRepository) {
 private fun MobileGlTopBar(title: String, onBack: () -> Unit) {
     TopAppBar(
         title = { Text(title, fontWeight = FontWeight.SemiBold) },
-        modifier = Modifier.windowInsetsPadding(WindowInsets.displayCutout),
         colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
     )
 }
@@ -604,15 +603,15 @@ private fun BottomBackCard(onClick: () -> Unit) {
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            colors = CardDefaults.cardColors(containerColor = BLUE),
             onClick = onClick,
         ) {
             Text(
-                "返回",
+                "← 返回",
                 modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
                 textAlign = TextAlign.Center,
-                color = BLUE,
-                fontWeight = FontWeight.Medium,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.bodyLarge,
             )
         }

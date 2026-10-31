@@ -276,3 +276,34 @@ GitHub Actions 提供两条流水线：
 - 顶栏与底栏也按 MobileGlues 的方式用 `AnimatedVisibility` 垂直滑入/滑出。
 
 现在切换 Tab 与进出子页的方向、时长、缓动与 MobileGlues 2.0 一致。
+
+## 15. 配置读取、运行时切换与系统 UI（2026-10-31 收尾）
+
+### 15.1 启动器读不到配置的根因与修复
+
+- 根因一：之前打包的是**官方 CI 的 libMobileGL.so**，它只读环境变量，不读 `/sdcard/MobileGL/runtime.conf`；
+- 根因二：即使换成本项目的补丁库，原逻辑是“环境变量覆盖配置文件”，启动器总会把静态 env 传进来，把文件值盖掉；
+- 修复：本 APK 改用**本项目补丁库**（ConfigLoader 读 runtime.conf），并把优先级改为 **配置文件 > 环境变量**（环境变量只作为文件缺省时的兜底）；
+- 与 MobileGlues 2.0 的模型一致：渲染器在游戏进程内读取 `/sdcard/...` 配置；启动器只负责拉起进程与注入基础 env。
+
+### 15.2 libRendererProxy.so：一个 APK 内运行时切换
+
+新增渲染器代理（`android-plugin/app/src/main/cpp/renderer_proxy`）：
+
+- 导出 SFPEW 与 MobileGL 的 EGL/GL 符号（AArch64 trampoline，2900 个），按 `/sdcard/MobileGL/runtime.conf` 的 `RENDERER_MODE` 选择：
+  - `sfpew`：加载 `libSfpew_real.so`，SFPEW_EGL 指向 MobileGL；
+  - `direct`：加载 `RENDERER_SO` 指定的库（外部导入时经 memfd 映射，绕过 noexec）；
+- 因此 SFPEW 开关**同一个 APK 内即可生效**（重启游戏）；
+- 驱动管理“启用”某个外部 .so 后，启动游戏与驱动自检都用它；
+- 外部库同时存到 `filesDir`（自检用）与 `/sdcard/MobileGL/libs`（游戏进程可读）。
+
+### 15.3 系统 UI 与返回
+
+- 恢复 MobileGlues 2.0 的做法：**显示状态栏/导航栏**，透明背景 + 深色图标，内容按 safeDrawing 内边距；
+- 子页返回改为底部整宽卡片按钮（蓝底白字“← 返回”），顶栏只留标题；
+- 页面过渡保持 14 节中与 MobileGlues 完全一致的参数。
+
+### 15.4 首页信息
+
+- GPU/OpenGL ES 用 EGL pbuffer + glGetString 探测（与 MobileGlues 同思路），Vulkan 版本取 Driver POST 的 instance API，内存取 ActivityManager；
+- 当前设备实测：Mali-G925-Immortalis MC12 / OpenGL ES 3.2 / Vulkan 1.3.0 / 15.0 GB。

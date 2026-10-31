@@ -95,8 +95,6 @@ namespace MobileGL::MG_ConfigLoader {
             acceptedEnvVariablesMap->clear();
         }
 
-        LoadRuntimeConfigFile();
-
         char** envPtr = nullptr;
 
 #ifdef _WIN32
@@ -105,7 +103,10 @@ namespace MobileGL::MG_ConfigLoader {
         envPtr = ::environ;
 #endif
 
-        if (envPtr == nullptr) return;
+        if (envPtr == nullptr) {
+            LoadRuntimeConfigFile();
+            return;
+        }
 
         for (char** env = envPtr; *env != nullptr; ++env) {
             String entry(*env);
@@ -120,6 +121,10 @@ namespace MobileGL::MG_ConfigLoader {
                 }
             }
         }
+        // The plugin-managed file wins over launcher-provided environment variables:
+        // the UI writes the user's latest choices there, while the launcher only
+        // forwards a snapshot from its own settings screen.
+        LoadRuntimeConfigFile();
     }
 
     inline void QueryEnvVariable(const String& key, String& outValue, const String& defaultValue) {
