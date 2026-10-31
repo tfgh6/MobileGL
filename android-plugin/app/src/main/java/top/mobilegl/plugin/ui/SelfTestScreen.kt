@@ -2,8 +2,11 @@
 package top.mobilegl.plugin.ui
 
 import android.content.Intent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,8 +14,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -25,21 +31,29 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import top.mobilegl.plugin.config.PluginConfig
 import top.mobilegl.plugin.selftest.BackendReport
-import top.mobilegl.plugin.selftest.CheckExplain
-import top.mobilegl.plugin.selftest.CheckExplanations
 import top.mobilegl.plugin.selftest.CheckItem
+import top.mobilegl.plugin.selftest.DriverBug
+import top.mobilegl.plugin.selftest.FormatCapabilities
+import top.mobilegl.plugin.selftest.FormatRow
 import top.mobilegl.plugin.selftest.SelfTestRepository
 import top.mobilegl.plugin.selftest.SelfTestResult
+
+private val CAPABILITY_FULL = Color(0xFF2E7D32)
+private val CAPABILITY_CAVEAT = Color(0xFFFBC02D)
+private val CAPABILITY_NONE = Color(0xFFC62828)
 
 @Composable
 fun SelfTestScreen(
@@ -59,8 +73,8 @@ fun SelfTestScreen(
         item {
             SectionCard("驱动自检") {
                 Text(
-                    "与官方 MobileGL Action APK 使用同一套 Driver POST（GLES + Vulkan），读取驱动真实能力。" +
-                        "失败项会说明影响，替代项会说明 MobileGL 用什么方案绕过。",
+                    "与官方 MobileGL Action APK 使用同一套 Driver POST（DirectGLES + DirectVulkan），" +
+                        "展示原生 checks、Known driver bugs 与 Format capabilities 完整报告。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -124,140 +138,176 @@ fun SelfTestScreen(
             return@LazyColumn
         }
 
-        item { SummaryCard(report) }
-
-        item {
-            Text(
-                "详细信息（向下滚动查看全部检查项）",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-        }
-        items(report.backends, key = { it.backend }) { backend ->
-            BackendDetailCard(
+        items(report.backends, key = { it.backend + "|" + it.renderer }) { backend ->
+            BackendCard(
                 backend = backend,
                 expanded = expanded,
                 onToggle = { key -> expanded = if (key in expanded) expanded - key else expanded + key },
             )
         }
         item {
-            Text(
-                "报告同时保存在应用私有目录，可点上方“分享原始报告”导出。",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            RawReportCard(report = report, expanded = expanded, onToggle = { key ->
+                expanded = if (key in expanded) expanded - key else expanded + key
+            })
         }
     }
 }
 
 @Composable
-private fun SummaryCard(report: SelfTestResult) {
-    val checks = report.backends.flatMap { backend -> backend.checks.map { backend to it } }
-    val fails = checks.filter { it.second.status.equals("FAIL", true) }
-    val warns = checks.filter { it.second.status.equals("WARN", true) }
-    val passes = checks.count { it.second.status.equals("PASS", true) }
-
-    SectionCard("结论") {
-        report.backends.forEach { backend ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    if (backend.backend.contains("vulkan", true)) "Vulkan (Magma)" else "GLES (Espryt)",
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                )
-                StatusPill(backend.verdict, verdictColor(backend.verdict))
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "通过 " + passes + " 项；替代 " + warns.size + " 项；失败 " + fails.size + " 项",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        if (fails.isNotEmpty()) {
-            Spacer(Modifier.height(10.dp))
-            Text("会影响游戏的功能", style = MaterialTheme.typography.titleSmall, color = verdictColor("FAIL"))
-            fails.forEach { (_, check) -> ExplainRow(check, "FAIL") }
-        }
-        if (warns.isNotEmpty()) {
-            Spacer(Modifier.height(10.dp))
-            Text("已用替代方案", style = MaterialTheme.typography.titleSmall, color = verdictColor("WARN"))
-            warns.forEach { (_, check) -> ExplainRow(check, "WARN") }
-        }
-    }
-}
-
-@Composable
-private fun ExplainRow(check: CheckItem, status: String) {
-    val explain: CheckExplain = CheckExplanations.of(check.name)
-    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(explain.title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
-            StatusPill(CheckExplanations.statusZh(check.status), verdictColor(check.status))
-        }
-        Text(
-            if (status == "WARN" && explain.fallback != null) explain.fallback else explain.impact,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        if (!check.name.equals(explain.title, true)) {
-            Text("原始项：" + check.name, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun BackendDetailCard(
+private fun BackendCard(
     backend: BackendReport,
     expanded: Set<String>,
     onToggle: (String) -> Unit,
 ) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    if (backend.backend.contains("vulkan", true)) "Vulkan (Magma)" else "GLES (Espryt)",
-                    modifier = Modifier.weight(1f),
-                    fontWeight = FontWeight.SemiBold,
-                )
-                StatusPill(backend.verdict, verdictColor(backend.verdict))
-            }
-            if (backend.renderer.isNotBlank()) {
-                Spacer(Modifier.height(4.dp))
-                Text(backend.renderer, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(18.dp)) {
+            Text(sectionTitle(backend.backend), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             if (!backend.available) {
                 Spacer(Modifier.height(6.dp))
-                Text("驱动不存在或无法探测", style = MaterialTheme.typography.bodySmall)
+                Text("Driver not present / not probeable", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Verdict: " + backend.verdict,
+                    color = verdictColor(backend.verdict),
+                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                if (backend.renderer.isNotBlank()) {
+                    Text(backend.renderer, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 Spacer(Modifier.height(8.dp))
                 backend.checks.forEach { check ->
-                    val key = backend.backend + "/" + check.name
-                    val open = key in expanded
-                    val explain = CheckExplanations.of(check.name)
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onToggle(key) }
-                            .padding(vertical = 5.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(explain.title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                            StatusPill(CheckExplanations.statusZh(check.status), verdictColor(check.status))
-                        }
-                        Text(
-                            explain.impact,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        if (open && check.detail.isNotBlank()) {
-                            Text(check.detail, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
-                        }
+                    CheckRow(
+                        check = check,
+                        open = (backend.backend + "/check/" + check.name) in expanded,
+                        onClick = { onToggle(backend.backend + "/check/" + check.name) },
+                    )
+                }
+                if (backend.knownDriverBugs.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text("Known driver bugs", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    backend.knownDriverBugs.forEach { bug ->
+                        val key = backend.backend + "/bug/" + bug.name
+                        DriverBugRow(bug = bug, open = key in expanded, onClick = { onToggle(key) })
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.surface.copy(alpha = 0.4f))
+                }
+                val formats = backend.formatCapabilities
+                if (formats != null) {
+                    Spacer(Modifier.height(12.dp))
+                    Text("Format capabilities", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    formats.targets.forEach { target ->
+                        val key = backend.backend + "/format/" + target.name
+                        val open = key in expanded
+                        Text(
+                            (if (open) "▾ " else "▸ ") + target.name + " (" + target.rows.size + " formats)",
+                            modifier = Modifier.fillMaxWidth().clickable { onToggle(key) }.padding(vertical = 8.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        if (open) FormatTable(capabilities = formats, rows = target.rows)
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CheckRow(check: CheckItem, open: Boolean, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(check.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            StatusPill(check.status, verdictColor(check.status))
+        }
+        if (open && check.detail.isNotBlank()) {
+            Text(
+                check.detail,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
+    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+}
+
+@Composable
+private fun DriverBugRow(bug: DriverBug, open: Boolean, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(bug.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            StatusPill(bug.verdict, verdictColor(bug.verdict))
+        }
+        if (open && bug.detail.isNotBlank()) {
+            Text(bug.detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+        }
+    }
+    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+}
+
+@Composable
+private fun FormatTable(capabilities: FormatCapabilities, rows: List<FormatRow>) {
+    val scroll = rememberScrollState()
+    Column(Modifier.fillMaxWidth().horizontalScroll(scroll)) {
+        Row {
+            TableCell("Format", 150.dp, MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurface, true)
+            capabilities.capabilities.forEach { name ->
+                TableCell(name, 104.dp, MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurface, true)
+            }
+        }
+        rows.forEach { row ->
+            Row {
+                TableCell(row.name, 150.dp, MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), MaterialTheme.colorScheme.onSurface, false)
+                capabilities.capabilities.indices.forEach { index ->
+                    val bit = if (index < 64) 1L shl index else 0L
+                    val full = bit != 0L && (row.fullMask and bit) != 0L
+                    val caveat = !full && bit != 0L && (row.caveatMask and bit) != 0L
+                    val color = if (full) CAPABILITY_FULL else if (caveat) CAPABILITY_CAVEAT else CAPABILITY_NONE
+                    val text = if (full) "Full" else if (caveat) "Caveat" else "None"
+                    TableCell(text, 104.dp, color, if (caveat) Color.Black else Color.White, true)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TableCell(text: String, width: androidx.compose.ui.unit.Dp, background: Color, foreground: Color, bold: Boolean) {
+    Box(
+        modifier = Modifier.width(width).height(32.dp).padding(end = 1.dp, bottom = 1.dp).background(background),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, color = foreground, fontSize = 10.sp, fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal, maxLines = 1)
+    }
+}
+
+@Composable
+private fun RawReportCard(report: SelfTestResult, expanded: Set<String>, onToggle: (String) -> Unit) {
+    val key = "raw"
+    val open = key in expanded
+    SectionCard("Raw report") {
+        Text(
+            if (open) "▾ Raw report (tap to collapse)" else "▸ Raw report (tap to expand)",
+            modifier = Modifier.fillMaxWidth().clickable { onToggle(key) }.padding(vertical = 4.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        if (open) {
+            Text(report.rawJson, fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+private fun sectionTitle(name: String): String {
+    val lower = name.lowercase()
+    return when {
+        lower.contains("gles") || lower.contains("espryt") -> "DirectGLES (Espryt)"
+        lower.contains("vulkan") || lower.contains("magma") -> "DirectVulkan (Magma)"
+        else -> name
     }
 }

@@ -4,6 +4,7 @@ package top.mobilegl.plugin.selftest
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import top.mobilegl.plugin.NativeEnv
 import top.mobilegl.plugin.PostActivity
@@ -16,12 +17,36 @@ data class CheckItem(
     val detail: String,
 )
 
+data class DriverBug(
+    val name: String,
+    val verdict: String,
+    val detail: String,
+)
+
+data class FormatRow(
+    val name: String,
+    val fullMask: Long,
+    val caveatMask: Long,
+)
+
+data class FormatTarget(
+    val name: String,
+    val rows: List<FormatRow>,
+)
+
+data class FormatCapabilities(
+    val capabilities: List<String>,
+    val targets: List<FormatTarget>,
+)
+
 data class BackendReport(
     val backend: String,
     val available: Boolean,
     val verdict: String,
     val renderer: String,
     val checks: List<CheckItem>,
+    val knownDriverBugs: List<DriverBug>,
+    val formatCapabilities: FormatCapabilities?,
 )
 
 data class SelfTestResult(
@@ -33,8 +58,9 @@ data class SelfTestResult(
 )
 
 /**
- * Runs MobileGL's existing Driver POST (libMobileGL.so + JNI) and parses the JSON report the
- * native side already produces. Kept as a single source of truth shared with PostActivity.
+ * Runs MobileGL's official Driver POST (same libMobileGL JNI entry the upstream
+ * Action APK uses) and parses the full report: checks, known driver bugs and the
+ * format capability matrix. This is the same JSON PostActivity renders upstream.
  */
 class SelfTestRepository(private val context: Context) {
     private val dir = File(context.filesDir, "plugin")
@@ -92,7 +118,7 @@ class SelfTestRepository(private val context: Context) {
         val root = runCatching { JSONObject(raw) }.getOrElse {
             return SelfTestResult(false, "自检返回的不是合法 JSON", emptyList(), raw, System.currentTimeMillis())
         }
-        val error = if (root.has("error")) root.optString("error") else ""
+        val error = root.optString("error", "")
         if (error.isNotEmpty()) {
             return SelfTestResult(false, error, emptyList(), raw, System.currentTimeMillis())
         }
@@ -104,9 +130,22 @@ class SelfTestRepository(private val context: Context) {
                 array.optJSONObject(i)?.let { reports.add(parseBackend(it, "backend")) }
             }
         } else {
-            val names = linkedMapOf("gles" to "DirectGLES", "vulkan" to "DirectVulkan")
-            names.forEach { (key, title) ->
-                root.optJSONObject(key)?.let { reports.add(parseBackend(it, title)) }
+            // Upstream extractBackends() accepts these four section names.
+            val keys = listOf(
+                "gles" to "DirectGLES",
+                "DirectGLES" to "DirectGLES",
+                "vulkan" to "DirectVulkan",
+                "DirectVulkan" to "DirectVulkan",
+            )
+            val seen = mutableSetOf<String>()
+            keys.forEach { (key, title) ->
+                root.optJSONObject(key)?.let { backend ->
+                    if (!backend.has("backend") && !backend.has("name")) {
+                        runCatching { backend.put("backend", key) }
+                    }
+                    val parsed = parseBackend(backend, title)
+                    if (seen.add(parsed.backend + "|" + parsed.renderer)) reports.add(parsed)
+                }
             }
         }
         if (reports.isEmpty()) {
@@ -132,12 +171,58 @@ class SelfTestRepository(private val context: Context) {
                 )
             }
         }
+        val bugs = mutableListOf<DriverBug>()
+        json.optJSONArray("knownDriverBugs")?.let { array ->
+            for (i in 0 until array.length()) {
+                val bug = array.optJSONObject(i) ?: continue
+                bugs.add(
+                    DriverBug(
+                        name = bug.optString("name", "unnamed bug"),
+                        verdict = bug.optString("verdict", "UNFIXABLE"),
+                        detail = bug.optString("detail", ""),
+                    )
+                )
+            }
+        }
         return BackendReport(
             backend = name,
             available = json.optBoolean("available", true),
             verdict = json.optString("verdict", "UNKNOWN"),
             renderer = json.optString("renderer", ""),
             checks = checks,
+            knownDriverBugs = bugs,
+            formatCapabilities = parseFormatCapabilities(json.optJSONObject("formatCapabilities")),
         )
+    }
+
+    private fun parseFormatCapabilities(json: JSONObject?): FormatCapabilities? {
+        if (json == null) return null
+        val capabilities = mutableListOf<String>()
+        json.optJSONArray("capabilities")?.let { array ->
+            for (i in 0 until array.length()) capabilities.add(array.optString(i, "capability $i"))
+        }
+        val targets = mutableListOf<FormatTarget>()
+        json.optJSONArray("targets")?.let { array ->
+            for (i in 0 until array.length()) {
+                val target = array.optJSONObject(i) ?: continue
+                val rows = mutableListOf<FormatRow>()
+                target.optJSONArray("rows")?.let { rowsArray ->
+                    for (j in 0 until rowsArray.length()) {
+                        val row = rowsArray.optJSONArray(j) ?: continue
+                        if (row.length() < 3) continue
+                        rows.add(
+                            FormatRow(
+                                name = row.optString(0, "Unknown"),
+                                fullMask = row.optLong(1, 0L),
+                                caveatMask = row.optLong(2, 0L),
+                            )
+                        )
+                    }
+                }
+                targets.add(FormatTarget(target.optString("name", "Unknown target"), rows))
+            }
+        }
+        if (capabilities.isEmpty() || targets.isEmpty()) return null
+        return FormatCapabilities(capabilities, targets)
     }
 }
