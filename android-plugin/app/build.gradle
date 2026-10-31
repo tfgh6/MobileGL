@@ -4,12 +4,22 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.compose'
 }
 
+// When set, the APK packages .so files from this directory (arm64-v8a/...)
+// instead of building :MobileGL from source. Used to ship official CI .so files
+// and to bundle SimpleFPEWrapper.
+def mobileGlPrebuiltLibsDir = (findProperty('mobilegl.prebuiltLibsDir') ?: '').toString().trim()
+def mobileGlUseSfpew = (findProperty('mobilegl.sfpew') ?: (mobileGlPrebuiltLibsDir ? 'true' : 'false')).toString().toBoolean()
+
 def mobileGlEnvString = { backendType ->
-    [
+    def env = [
             LIBGL_ES             : '3',
             POJAV_RENDERER       : 'opengles3',
             MOBILEGL_BACKEND_TYPE: backendType,
-    ].collect { key, value -> "${key}=${value}" }.join(':')
+    ]
+    if (mobileGlUseSfpew) {
+        env['SFPEW_EGL'] = 'libMobileGL.so'
+    }
+    env.collect { key, value -> "${key}=${value}" }.join(':')
 }
 def signingStoreFile = file('../keystore.jks')
 def signingStorePassword = System.getenv('SIGNING_STORE_PASSWORD')
@@ -53,11 +63,23 @@ def mobileGlRendererConfig = { String backendType ->
             [type: 'ToggleableEnv', key: 'MOBILEGL_VULKAN_R11G11B10F_FALLBACK', value: '1',
              title: [key: 'mobilegl_r11g11b10f_fallback_title'], toggle: false],
     ]
+    if (mobileGlUseSfpew) {
+        env.add([type: 'SelectableEnv', key: 'SFPEW_EGL',
+                 title: [key: 'sfpew_backend_title'], check: true,
+                 items: [defaultValue: 'libMobileGL.so', values: ['libEGL.so', 'libMobileGL.so']]])
+        env.add([type: 'ToggleableEnv', key: 'SFPEW_RELAXED_CONTEXT', value: '1',
+                 title: [key: 'sfpew_relaxed_context_title'], toggle: false])
+        env.add([type: 'ToggleableEnv', key: 'SFPEW_NO_MULTIDRAWARRAYS', value: '1',
+                 title: [key: 'sfpew_no_multidrawarrays_title'], toggle: false])
+        env.add([type: 'ToggleableEnv', key: 'SFPEW_NO_LIST_BATCH', value: '1',
+                 title: [key: 'sfpew_no_list_batch_title'], toggle: false])
+    }
+    def glLib = mobileGlUseSfpew ? '**|libSimpleFPEWrapper.so' : '**|libMobileGL.so'
     def config = [
-            displayName    : 'MobileGL',
+            displayName    : mobileGlUseSfpew ? 'MobileGL SFPEW' : 'MobileGL',
             rendererId     : 'opengles3',
-            rendererGLPath : '**|libMobileGL.so',
-            rendererEGLPath: '**|libMobileGL.so',
+            rendererGLPath : glLib,
+            rendererEGLPath: glLib,
             dlopenLibPaths : [],
             env            : env,
             minMCVer       : null,
@@ -152,7 +174,7 @@ android {
             manifestPlaceholders = [
                     appLabel: 'MobileGL Espryt',
                     des     : 'MobileGL Espryt',
-                    renderer: 'MobileGL Espryt:libMobileGL.so:/libMobileGL.so',
+                    renderer: mobileGlUseSfpew ? 'MobileGL SFPEW:libSimpleFPEWrapper.so:/libSimpleFPEWrapper.so' : 'MobileGL Espryt:libMobileGL.so:/libMobileGL.so',
                     boatEnv : env,
                     pojavEnv: env,
             ]
@@ -166,7 +188,7 @@ android {
             manifestPlaceholders = [
                     appLabel: 'MobileGL Magma',
                     des     : 'MobileGL Magma',
-                    renderer: 'MobileGL Magma:libMobileGL.so:/libMobileGL.so',
+                    renderer: mobileGlUseSfpew ? 'MobileGL SFPEW:libSimpleFPEWrapper.so:/libSimpleFPEWrapper.so' : 'MobileGL Magma:libMobileGL.so:/libMobileGL.so',
                     boatEnv : env,
                     pojavEnv: env,
             ]
@@ -202,10 +224,14 @@ android {
         }
     }
 
-    externalNativeBuild {
-        cmake {
-            path file('src/trace/cpp/CMakeLists.txt')
-            version '3.22.1'
+    // The trace-replay runner is only needed when this project builds its own
+    // native sources; prebuilt/official .so builds skip it (and need no NDK).
+    if (mobileGlPrebuiltLibsDir.isEmpty()) {
+        externalNativeBuild {
+            cmake {
+                path file('src/trace/cpp/CMakeLists.txt')
+                version '3.22.1'
+            }
         }
     }
 
@@ -213,6 +239,14 @@ android {
         jniLibs {
             useLegacyPackaging true
             excludes += ['**/libSPIRV-Tools-shared.so']
+        }
+    }
+
+    sourceSets {
+        main {
+            if (!mobileGlPrebuiltLibsDir.isEmpty()) {
+                jniLibs.srcDirs += mobileGlPrebuiltLibsDir
+            }
         }
     }
 }
@@ -230,7 +264,10 @@ androidComponents {
 }
 
 dependencies {
-    implementation project(':MobileGL')
+    // Official/prebuilt .so mode skips the native MobileGL module entirely.
+    if (mobileGlPrebuiltLibsDir.isEmpty()) {
+        implementation project(':MobileGL')
+    }
 
     // Compose configuration UI (Material 3). Versions are pinned so the APK build is reproducible.
     // Compose 1.6.8 is the last line that builds with compileSdk 34 (the plugin module

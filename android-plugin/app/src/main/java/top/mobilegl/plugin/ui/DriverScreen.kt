@@ -37,35 +37,60 @@ import kotlinx.coroutines.withContext
 import top.mobilegl.plugin.config.PluginConfig
 import top.mobilegl.plugin.driver.DriverPack
 import top.mobilegl.plugin.driver.DriverRepository
+import top.mobilegl.plugin.driver.ExternalLibrary
+import top.mobilegl.plugin.driver.ExternalLibraryRepository
+import java.io.File
 
 @Composable
 fun DriverScreen(
     repository: DriverRepository,
+    externalRepository: ExternalLibraryRepository,
     drivers: List<DriverPack>,
+    externalLibraries: List<ExternalLibrary>,
     config: PluginConfig,
     onRefresh: () -> Unit,
     onActivate: (DriverPack) -> Unit,
     onClearActive: () -> Unit,
+    onSelectSelfTestLibrary: (ExternalLibrary?) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var message by remember { mutableStateOf<String?>(null) }
     var importing by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<DriverPack?>(null) }
+    var pendingDeleteLibrary by remember { mutableStateOf<ExternalLibrary?>(null) }
 
-    val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    val driverImporter = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             scope.launch {
                 importing = true
                 val outcome = repository.install(uri)
                 importing = false
                 message = outcome.fold(
-                    onSuccess = { "已导入 " + it.name + "（" + it.version + "）" },
+                    onSuccess = { "已导入驱动包 " + it.name + "（" + it.version + "）" },
                     onFailure = { "导入失败：" + (it.message ?: it.toString()) },
                 )
                 onRefresh()
             }
         }
+    }
+    val libraryImporter = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                importing = true
+                val outcome = externalRepository.import(uri)
+                importing = false
+                message = outcome.fold(
+                    onSuccess = { "已导入外部库 " + it.name + "（" + (it.size / 1024 / 1024) + " MiB）" },
+                    onFailure = { "导入失败：" + (it.message ?: it.toString()) },
+                )
+                onRefresh()
+            }
+        }
+    }
+
+    val sfpewBundled = remember {
+        runCatching { File(context.applicationInfo.nativeLibraryDir, "libSimpleFPEWrapper.so").isFile }.getOrDefault(false)
     }
 
     Column(
@@ -75,19 +100,34 @@ fun DriverScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        SectionCard("驱动包") {
+        SectionCard("渲染器组件") {
             Text(
-                "驱动包是带 driver.json 的 zip（arm64 .so + 可选 ICD 模板）。" +
-                    "当前阶段用于安装、校验与 ICD 生成；MobileGL 仍使用系统 Vulkan loader，" +
-                    "激活驱动不会改变游戏内渲染，直到 PanVK 阶段接入自带 loader。",
+                "本 APK 的渲染链：启动器 → libSimpleFPEWrapper.so → SFPEW_EGL 指定的后端（默认 libMobileGL.so）。",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(6.dp))
+            InfoRow("SFPEW 包装器", if (sfpewBundled) "已内置" else "未内置（可用外部库页导入自检）")
+            InfoRow("后端库", "libMobileGL.so（APK 内置）")
+            Text(
+                "说明：游戏进程由启动器加载 APK 内库；从外部导入的 .so 用于自检/验证与后续重新打包，" +
+                    "无法在运行时替换启动器已加载的库。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        SectionCard("外部 .so（更新渲染器 / SFPEW）") {
+            Text(
+                "可导入官方 Action 构建的 libMobileGL.so，或 libSimpleFPEWrapper.so。会校验 arm64 ELF。" +
+                    "选中“自检库”后，驱动自检会优先加载它。",
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     enabled = !importing,
-                    onClick = { importer.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
-                ) { Text(if (importing) "导入中…" else "导入驱动包") }
+                    onClick = { libraryImporter.launch(arrayOf("application/octet-stream", "*/*")) },
+                ) { Text(if (importing) "导入中…" else "导入 .so") }
                 OutlinedButton(onClick = onRefresh) { Text("刷新") }
             }
             if (importing) {
@@ -98,27 +138,36 @@ fun DriverScreen(
                 Spacer(Modifier.height(8.dp))
                 Text(it, style = MaterialTheme.typography.bodySmall)
             }
-        }
-
-        if (drivers.isEmpty()) {
-            SectionCard("尚未安装驱动") {
-                Text(
-                    "driver.json 示例：",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Medium,
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "{\n  \"id\": \"panvk-g925-abcd1234\",\n  \"name\": \"Mesa PanVK (Mali-G925)\",\n" +
-                        "  \"version\": \"26.3.0-devel\",\n  \"abi\": \"arm64-v8a\",\n" +
-                        "  \"kind\": \"vulkan-icd\",\n  \"library\": \"lib/libvulkan_panfrost.so\",\n" +
-                        "  \"icd\": \"panvk_icd.json\"\n}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Spacer(Modifier.height(8.dp))
+            if (externalLibraries.isEmpty()) {
+                Text("还没有导入外部库。", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                externalLibraries.forEach { library ->
+                    ExternalLibraryRow(
+                        library = library,
+                        selected = config.selfTestLibraryPath == library.file.absolutePath,
+                        onSelect = {
+                            onSelectSelfTestLibrary(if (config.selfTestLibraryPath == library.file.absolutePath) null else library)
+                        },
+                        onDelete = { pendingDeleteLibrary = library },
+                    )
+                }
             }
         }
 
+        SectionCard("驱动包（PanVK / Vulkan ICD 预留）") {
+            Text(
+                "带 driver.json 的 zip：安装、校验、生成 ICD。PanVK 阶段接入 loader 后才会影响游戏。",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { driverImporter.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }) {
+                    Text("导入驱动包")
+                }
+                OutlinedButton(onClick = onRefresh) { Text("刷新") }
+            }
+        }
         drivers.forEach { pack ->
             DriverCard(
                 pack = pack,
@@ -137,17 +186,64 @@ fun DriverScreen(
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text("删除驱动") },
-            text = { Text("确认删除 " + pack.name + "？该操作不可撤销。") },
+            text = { Text("确认删除 " + pack.name + "？") },
             confirmButton = {
                 TextButton(onClick = {
-                    val deleted = repository.delete(pack)
-                    message = if (deleted) "已删除 " + pack.name else "删除失败"
+                    message = if (repository.delete(pack)) "已删除 " + pack.name else "删除失败"
                     pendingDelete = null
                     onRefresh()
                 }) { Text("删除") }
             },
             dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } },
         )
+    }
+    pendingDeleteLibrary?.let { library ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteLibrary = null },
+            title = { Text("删除外部库") },
+            text = { Text("确认删除 " + library.name + "？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (config.selfTestLibraryPath == library.file.absolutePath) onSelectSelfTestLibrary(null)
+                    message = if (externalRepository.delete(library)) "已删除 " + library.name else "删除失败"
+                    pendingDeleteLibrary = null
+                    onRefresh()
+                }) { Text("删除") }
+            },
+            dismissButton = { TextButton(onClick = { pendingDeleteLibrary = null }) { Text("取消") } },
+        )
+    }
+}
+
+@Composable
+private fun ExternalLibraryRow(
+    library: ExternalLibrary,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val kind = when {
+        library.isSfpew() -> "SFPEW 包装器"
+        library.isRenderer() -> "MobileGL 渲染器"
+        else -> "其他 .so"
+    }
+    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(library.name, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                Text(
+                    kind + " · " + (library.size / 1024 / 1024) + " MiB",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (selected) StatusPill("自检库", verdictColor("PASS"))
+        }
+        Spacer(Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onSelect) { Text(if (selected) "取消自检库" else "设为自检库") }
+            OutlinedButton(onClick = onDelete) { Text("删除") }
+        }
     }
 }
 
@@ -165,52 +261,26 @@ private fun DriverCard(
     val scope = rememberCoroutineScope()
     SectionCard(pack.name) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                pack.version,
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            if (active) {
-                StatusPill("已激活", verdictColor("PASS"))
-            } else {
-                StatusPill("未激活", MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            Text(pack.version, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            if (active) StatusPill("已激活", verdictColor("PASS")) else StatusPill("未激活", MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Spacer(Modifier.height(8.dp))
         InfoRow("ABI", pack.abi)
         InfoRow("类型", pack.kind)
         if (pack.mesaVersion.isNotBlank()) InfoRow("Mesa", pack.mesaVersion)
         InfoRow("路径", pack.dir.absolutePath)
-        if (pack.icdTemplate != null) InfoRow("ICD 模板", pack.icdTemplate)
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (active) {
-                OutlinedButton(onClick = onClearActive) { Text("取消激活") }
-            } else {
-                Button(onClick = onActivate) { Text("激活") }
-            }
+            if (active) OutlinedButton(onClick = onClearActive) { Text("取消激活") } else Button(onClick = onActivate) { Text("激活") }
             if (pack.isVulkanIcd()) {
                 OutlinedButton(onClick = {
                     scope.launch {
-                        val file = withContext(Dispatchers.IO) {
-                            runCatching { repository.generateIcd(pack) }.getOrNull()
-                        }
-                        onMessage(
-                            if (file != null) "ICD 已生成：" + file.absolutePath
-                            else "生成 ICD 失败（缺少模板或库）"
-                        )
+                        val file = withContext(Dispatchers.IO) { runCatching { repository.generateIcd(pack) }.getOrNull() }
+                        onMessage(if (file != null) "ICD 已生成：" + file.absolutePath else "生成 ICD 失败（缺少模板或库）")
                     }
                 }) { Text("生成 ICD") }
             }
             OutlinedButton(onClick = onDelete) { Text("删除") }
-        }
-        if (pack.isVulkanIcd()) {
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "PanVK 阶段：MobileGL 需链接自带 Khronos loader 后，VK_DRIVER_FILES 才会生效。",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }

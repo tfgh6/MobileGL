@@ -45,10 +45,14 @@ class SelfTestRepository(private val context: Context) {
 
     fun cached(): SelfTestResult? = cached ?: loadLast()
 
-    suspend fun run(config: PluginConfig): SelfTestResult = withContext(Dispatchers.IO) {
+    suspend fun run(config: PluginConfig, libraryPath: String? = null): SelfTestResult = withContext(Dispatchers.IO) {
         NativeEnv.apply(config)
         val raw = try {
-            PostActivity.runDriverPostJson()
+            if (libraryPath.isNullOrBlank()) {
+                PostActivity.runDriverPostJson()
+            } else {
+                PostActivity.runDriverPostJsonFrom(libraryPath)
+            }
         } catch (t: Throwable) {
             return@withContext SelfTestResult(
                 ok = false,

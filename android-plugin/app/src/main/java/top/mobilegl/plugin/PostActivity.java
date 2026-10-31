@@ -436,5 +436,18 @@ public final class PostActivity extends Activity {
         return nativeRunDriverPost();
     }
 
+    /**
+     * Same POST, but from a user-imported libMobileGL.so first. Used by the
+     * "external library" feature: the library is loaded with System.load so the
+     * JNI symbol resolves from it, and the packaged lib stays untouched.
+     */
+    public static String runDriverPostJsonFrom(String absolutePath) {
+        if (absolutePath == null || absolutePath.isEmpty()) {
+            return runDriverPostJson();
+        }
+        System.load(absolutePath);
+        return nativeRunDriverPost();
+    }
+
     private static native String nativeRunDriverPost();
 }

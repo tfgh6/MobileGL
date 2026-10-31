@@ -15,6 +15,7 @@ data class PluginConfig(
     val autoSelfTest: Boolean = false,
     val activeDriverId: String? = null,
     val activeIcdPath: String? = null,
+    val selfTestLibraryPath: String? = null,
     val env: Map<String, String> = defaultEnv("DirectVulkan"),
     val theme: String = "dark",
 ) {
@@ -25,6 +26,7 @@ data class PluginConfig(
         root.put("autoSelfTest", autoSelfTest)
         root.put("activeDriverId", activeDriverId ?: JSONObject.NULL)
         root.put("activeIcdPath", activeIcdPath ?: JSONObject.NULL)
+        root.put("selfTestLibraryPath", selfTestLibraryPath ?: JSONObject.NULL)
         val envJson = JSONObject()
         env.forEach { (key, value) -> envJson.put(key, value) }
         root.put("env", envJson)
@@ -60,6 +62,7 @@ data class PluginConfig(
                 autoSelfTest = root.optBoolean("autoSelfTest", false),
                 activeDriverId = if (root.isNull("activeDriverId")) null else root.optString("activeDriverId").ifEmpty { null },
                 activeIcdPath = if (root.isNull("activeIcdPath")) null else root.optString("activeIcdPath").ifEmpty { null },
+                selfTestLibraryPath = if (root.isNull("selfTestLibraryPath")) null else root.optString("selfTestLibraryPath").ifEmpty { null },
                 env = env,
                 theme = root.optString("theme", "dark"),
             )

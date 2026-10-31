@@ -56,6 +56,18 @@
         <meta-data
             android:name="mobilegl_r11g11b10f_fallback_title"
             android:resource="@string/mobilegl_r11g11b10f_fallback_title" />
+        <meta-data
+            android:name="sfpew_backend_title"
+            android:resource="@string/sfpew_backend_title" />
+        <meta-data
+            android:name="sfpew_relaxed_context_title"
+            android:resource="@string/sfpew_relaxed_context_title" />
+        <meta-data
+            android:name="sfpew_no_multidrawarrays_title"
+            android:resource="@string/sfpew_no_multidrawarrays_title" />
+        <meta-data
+            android:name="sfpew_no_list_batch_title"
+            android:resource="@string/sfpew_no_list_batch_title" />
 
         <!-- Legacy FCL / Pojav plugin descriptor (kept for compatibility) -->
         <meta-data

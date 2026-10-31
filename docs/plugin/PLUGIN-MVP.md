@@ -175,3 +175,47 @@ GitHub Actions 提供两条流水线：
     tools\build-plugin.ps1 -SdkRoot "C:\Users\Admin\AppData\Local\Android\Sdk"
 
 > 注意：本仓库 `android-plugin/settings.gradle` 已加入阿里云 Maven 镜像作为首选，便于国内网络；GitHub Actions 若解析慢可改回 `google()/mavenCentral()` 优先。
+
+## 11. UI 重构与 SFPEW 支持（2026-10-31 晚）
+
+### 11.1 主界面改为“入口按钮”结构
+
+- 首页只保留状态卡 + 四个入口：**驱动管理 / 启动配置 / 驱动自检 / 关于**；
+- 驱动管理与启动配置各自是独立页面，返回键回首页（不再用底部 Tab 堆叠）。
+
+### 11.2 驱动自检的“人话”说明
+
+- 数据仍来自官方同源的 Driver POST（GLES + Vulkan）；
+- 页面顶部先给结论：通过 / 替代 / 失败数量；
+- **失败项**列出中文标题与具体影响（如 vertexPipelineStoresAndAtomics 会影响光影/地形模组）；
+- **替代项（WARN）**说明 MobileGL 用什么方案绕过（如 timer query 关闭、multiDrawIndirect 退回逐条绘制、uint8 索引转 16 位）；
+- 完整检查表、原始 detail、renderer 字符串等放在同一页面向下滚动处。
+
+### 11.3 外部 .so 导入/更新
+
+驱动页新增“外部 .so”区块：
+
+- 从 SAF 导入 `libMobileGL.so` 或 `libSimpleFPEWrapper.so`，校验 64 位 little-endian AArch64 ELF，存到 `filesDir/libraries`；
+- 可设为“自检库”，自检时用 `System.load(path)` 优先加载该库；
+- 说明边界：游戏进程由启动器加载 APK 内库，导入库用于自检/验证；替换游戏库需重新打包（`-Pmobilegl.prebuiltLibsDir=...`）。
+
+### 11.4 SimpleFPEWrapper 支持
+
+- 本构建已把 **官方 SFPEW CI 产物**里的 `libSimpleFPEWrapper.so` 与官方 `libMobileGL.so` 一起打包；
+- 渲染链变为：启动器 → `libSimpleFPEWrapper.so` → `SFPEW_EGL`（默认 `libMobileGL.so`）；
+- Zalith 配置新增 `SFPEW_EGL`（libEGL.so / libMobileGL.so）与 `SFPEW_RELAXED_CONTEXT`、`SFPEW_NO_MULTIDRAWARRAYS`、`SFPEW_NO_LIST_BATCH` 开关；
+- legacy manifest 的 `renderer/boatEnv/pojavEnv` 同步切换为 SFPEW。
+
+### 11.5 官方 .so 直用（不再为本 APK 编译 MobileGL）
+
+构建时传预编译库目录，Gradle 不再依赖 `:MobileGL`：
+
+    # Gradle 属性请用环境变量传，PowerShell 直接 -P 会被拆坏
+    $env:ORG_GRADLE_PROJECT_mobilegl.prebuiltLibsDir = "C:/Gradle/sfpew-libs"
+    $env:ORG_GRADLE_PROJECT_mobilegl.sfpew = "true"
+    gradle -p android-plugin :app:assembleMagmaPluginDebug
+
+本机产物：`dist/MobileGL-SFPEW-MagmaPlugin-debug.apk`（debug 签名，含 SFPEW + 官方 MobileGL）。
+
+> 注意：官方 CI 的 libMobileGL.so 只读环境变量，不读 `/sdcard/MobileGL/runtime.conf`；因此“启动配置”页对官方库不生效。
+> 真正生效的配置入口是 Zalith/FCL 的插件设置（`fclPlugin_V2` 的 selectable/toggleable），或换用本项目补丁库后再用 runtime.conf。
