@@ -6,7 +6,7 @@ import org.json.JSONObject
 /**
  * User-visible configuration of the MobileGL renderer plugin.
  *
- * The renderer itself consumes MOBILEGL_*/LIBGL_* variables. We persist the UI state as
+ * The renderer itself consumes MOBILEGL_* and LIBGL_* variables. We persist the UI state as
  * JSON (filesDir/plugin/config.json) and also emit a key=value runtime file that the native
  * ConfigLoader can read from shared storage (see RuntimeConfigWriter).
  */

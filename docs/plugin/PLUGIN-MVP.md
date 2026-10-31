@@ -114,7 +114,7 @@ zip 根目录必须有 `driver.json`：
 
 ## 6. 已知限制（必须知道）
 
-1. **未本机编译**：本环境无 Android SDK/NDK/Gradle，Kotlin/Compose 代码与 Gradle 改动只能靠 CI 首次构建验证；若首次构建报错，优先看 Compose/Kotlin 版本与 `material-icons-core`。
+1. **本机构建已跑通（debug）**：使用用户机器上的 Android SDK（platform 34/build-tools 34）、NDK 27.3 与 CMake 3.22.1、JDK 21（Android Studio JBR）、Gradle 8.10.2 构建成功；产物见仓库根 `dist/`。CI（GitHub Actions）路径尚未在该仓库上实跑，首次推送后仍需看构建日志。
 2. **配置生效依赖文件可读**：游戏进程是启动器进程，读 `/sdcard/MobileGL/runtime.conf` 需要启动器具备存储权限；插件 UI 需要“所有文件访问权限”才能写共享路径。无权限时仅写私有副本（对游戏无效），UI 会明确提示。
 3. **驱动注入未生效**：系统 `/system/lib64/libvulkan.so` 是 AOSP 自有 loader，**不读取** `VK_ICD_FILENAMES/VK_DRIVER_FILES`（task-2 源码核实）。要真正切换 ICD 必须给 MobileGL 链接自带 Khronos loader（`MOBILEGL_VULKAN_LIBRARY`），且 Khronos loader 1.4.x 的 CMake 在 Android 上直接 `FATAL_ERROR`，需要 patch。该工作推迟到 PanVK 阶段。
 4. **自检进程 ≠ 游戏进程**：自检在本插件进程内加载 libMobileGL；游戏进程的驱动能力以实际运行结果为准。
@@ -157,3 +157,21 @@ GitHub Actions 提供两条流水线：
 
 - `.github/workflows/plugin-debug.yml`：**不需要签名 secrets**，构建 espryt/magma 的 debug APK 并上传，适合 fork 直接跑；
 - `.github/workflows/apk.yml`：原有 release 流水线（需要 `SIGNING_*` secrets；没有 secrets 时产物未签名，会卡在 apk 验签步骤，因此签 APK 请用 debug 流水线）。
+
+## 10. 本机构建验证记录（2026-10-31）
+
+已在本机完成 debug 构建，产物：
+
+    dist/MobileGL-EsprytPlugin-debug.apk   # DirectGLES
+    dist/MobileGL-MagmaPlugin-debug.apk    # DirectVulkan（主要目标）
+
+- 工具链：JDK 21（Android Studio JBR）、Gradle 8.10.2、SDK platform 34 / build-tools 34、CMake 3.22.1、NDK（原生库用 r29 构出，APK 内为 `lib/arm64-v8a/libMobileGL.so`）；
+- 原生库由本分支源码经 CMake 构建（含 `runtime.conf` 读取与 Driver POST JNI），再以 jniLibs 形式打入 APK；
+- APK 校验：package `top.mobilegl.plugin.magma` / minSdk 26 / targetSdk 34；debug 签名；manifest 含 `fclPlugin_V2`、`fclPlugin`、`renderer/boatEnv/pojavEnv`、MainActivity 与 POST Activity；
+- Zalith 的 `@string/config` 已确认生成正确 JSON（含 `**|libMobileGL.so`、selectable/toggleable 项）。
+
+复现命令（Windows，使用本机已装 SDK）：
+
+    tools\build-plugin.ps1 -SdkRoot "C:\Users\Admin\AppData\Local\Android\Sdk"
+
+> 注意：本仓库 `android-plugin/settings.gradle` 已加入阿里云 Maven 镜像作为首选，便于国内网络；GitHub Actions 若解析慢可改回 `google()/mavenCentral()` 优先。

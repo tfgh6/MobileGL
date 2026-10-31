@@ -70,7 +70,7 @@ class DriverRepository(private val context: Context) {
         val libraryPath = pack.libraryFile().absolutePath
         val rendered = template.readText()
             .replace("@LIBRARY@", libraryPath)
-            .replace("${LIBRARY}", libraryPath)
+            .replace("\${LIBRARY}", libraryPath)
         val out = pack.generatedIcdFile()
         out.writeText(rendered)
         return out
