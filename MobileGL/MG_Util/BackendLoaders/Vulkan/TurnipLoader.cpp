@@ -37,7 +37,7 @@ namespace MobileGL::MG_Util::BackendLoader {
         constexpr const char* kTurnipHookDirKey = "MOBILEGL_TURNIP_HOOK_DIR";
         constexpr const char* kStagingDirKey = "MOBILEGL_TURNIP_STAGING_DIR";
         constexpr const char* kRuntimeConfPath = "/sdcard/MobileGL/runtime.conf";
-        constexpr const char* kBundledTurnipName = "libvulkan_freedreno.so";
+        constexpr const char* kBundledTurnipName = "libturnip_generic.so";
 
         String Trim(const String& value) {
             SizeT begin = 0;
