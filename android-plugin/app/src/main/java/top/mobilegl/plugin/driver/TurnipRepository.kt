@@ -16,10 +16,11 @@ enum class TurnipDriverSource { Bundled, External }
  * A usable Turnip (Mesa Freedreno Vulkan) driver library.
  *
  * [path] is the absolute path written to runtime.conf (MOBILEGL_TURNIP_PATH). The bundled
- * copy lives in the plugin APK's nativeLibraryDir and is the reliable one. External copies
- * live on the shared /sdcard/MobileGL/turnip directory: /sdcard is mounted noexec on modern
- * Android, so the game process cannot dlopen them directly. They are kept as an archive
- * until the loader copies them into the launcher's data directory.
+ * copy lives in the plugin APK's nativeLibraryDir and is the reliable load path. External
+ * copies live on the shared /sdcard/MobileGL/turnip directory: /sdcard is mounted noexec on
+ * modern Android, so the game process cannot dlopen them in place. MobileGL copies them into
+ * the game process's cache directory before loading; that path is experimental and falls
+ * back to system Vulkan when the copy or load fails.
  */
 data class TurnipDriver(
     val source: TurnipDriverSource,
@@ -33,11 +34,12 @@ data class TurnipDriver(
 
     /**
      * Bundled libraries are extracted native libraries and can be dlopen'ed by the game
-     * process. External /sdcard copies cannot (noexec mount + SELinux), so they are only
-     * stored as an archive until the loader copies them into the launcher data directory.
+     * process directly. External /sdcard copies cannot be dlopen'ed in place (noexec mount +
+     * SELinux); MobileGL copies them into the game process's cache directory before loading.
+     * That path is experimental and falls back to system Vulkan on failure.
      */
-    val archiveOnly: Boolean get() = !bundled
-    val sourceLabel: String get() = if (bundled) "内置" else "外部（实验·仅存档）"
+    val experimental: Boolean get() = !bundled
+    val sourceLabel: String get() = if (bundled) "内置" else "外部（实验）"
     val sizeMiB: Long get() = (sizeBytes / (1024 * 1024)).coerceAtLeast(1)
 
     /** Short one-line description used by the settings card. */
@@ -68,10 +70,10 @@ data class TurnipGpu(
  * The APK bundles libvulkan_freedreno.so in jniLibs (extracted to nativeLibraryDir on
  * install); that is the reliable load path. An external Turnip .so can also be imported to
  * /sdcard/MobileGL/turnip/ so it survives plugin updates, but it is experimental: the game
- * process cannot dlopen files from /sdcard (noexec/SELinux), so it is archived only until
- * the loader copies it into the launcher data directory. Both are validated as 64-bit
- * little-endian AArch64 ELF, and the Mesa/build id is parsed out of the library's string
- * table for the status card.
+ * process cannot dlopen files from /sdcard (noexec/SELinux), so MobileGL copies them into
+ * the game process's cache directory before loading and falls back to system Vulkan when
+ * that fails. Both are validated as 64-bit little-endian AArch64 ELF, and the Mesa/build id
+ * is parsed out of the library's string table for the status card.
  */
 class TurnipRepository(private val context: Context) {
     companion object {

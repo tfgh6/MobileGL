@@ -56,6 +56,7 @@ fun DriverScreen(
     turnipDrivers: List<TurnipDriver>,
     turnipGpu: TurnipGpu,
     turnipLoading: Boolean,
+    configFileShared: Boolean,
     config: PluginConfig,
     onRefresh: () -> Unit,
     onActivate: (DriverPack) -> Unit,
@@ -158,6 +159,7 @@ fun DriverScreen(
             gpu = turnipGpu,
             drivers = turnipDrivers,
             loading = turnipLoading,
+            configFileShared = configFileShared,
             selected = selectedTurnip,
             importing = turnipImporting,
             message = turnipMessage,
@@ -299,6 +301,7 @@ private fun TurnipCard(
     gpu: TurnipGpu,
     drivers: List<TurnipDriver>,
     loading: Boolean,
+    configFileShared: Boolean,
     selected: TurnipDriver?,
     importing: Boolean,
     message: String?,
@@ -345,10 +348,18 @@ private fun TurnipCard(
         if (!config.turnipEnabled) {
             InfoRow("回退", "关闭时使用系统 Vulkan")
         }
-        if (selected?.archiveOnly == true) {
+        if (!configFileShared) {
             Text(
-                "外部库目前仅作存档：游戏进程无法从 /sdcard 直接加载（noexec / SELinux），" +
-                    "启用后可能回退系统 Vulkan；建议改用内置驱动。",
+                "注意：/sdcard/MobileGL/runtime.conf 未能写入（需授予“所有文件访问权限”），" +
+                    "游戏进程读不到本页开关；请先授权，否则 Turnip 不会生效。",
+                style = MaterialTheme.typography.labelSmall,
+                color = verdictColor("FAIL"),
+            )
+        }
+        if (selected?.experimental == true) {
+            Text(
+                "外部库为实验性：/sdcard 不能直接 dlopen，MobileGL 会在游戏进程内复制到应用缓存后加载；" +
+                    "复制或加载失败会自动回退系统 Vulkan，建议优先使用内置驱动。",
                 style = MaterialTheme.typography.labelSmall,
                 color = verdictColor("WARN"),
             )
@@ -418,8 +429,8 @@ private fun TurnipCard(
             "开关直接写入 /sdcard/MobileGL/runtime.conf，由 MobileGL 启动时读取；" +
                 "不需要在 FCL / Zalith 的版本设置里选择任何驱动，也不再依赖启动器的 driver 选项。" +
                 "内置驱动位于 APK 的 nativeLibraryDir，是可靠的加载路径。" +
-                "外部库放在 " + externalDir + "（会校验 arm64 ELF），当前仅作存档：/sdcard 为 noexec 挂载，" +
-                "游戏进程暂时无法直接加载，加载失败时 MobileGL 回退系统 Vulkan。" +
+                "外部库放在 " + externalDir + "（会校验 arm64 ELF），为实验性功能：/sdcard 为 noexec 挂载，" +
+                "MobileGL 会在游戏进程内复制到应用缓存后再加载，失败时自动回退系统 Vulkan。" +
                 "检测到非 Adreno（Mali / PowerVR / Xclipse）时开关自动禁用。",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -451,13 +462,13 @@ private fun TurnipDriverRow(
             }
             if (selected) {
                 StatusPill("使用中", verdictColor("PASS"))
-            } else if (driver.archiveOnly) {
-                StatusPill("仅存档", verdictColor("WARN"))
+            } else if (driver.experimental) {
+                StatusPill("实验", verdictColor("WARN"))
             }
         }
-        if (driver.archiveOnly) {
+        if (driver.experimental) {
             Text(
-                "实验：/sdcard 路径无法被游戏进程直接 dlopen，等待加载器复制到启动器数据目录",
+                "实验：由 MobileGL 复制到应用缓存后加载（/sdcard 不能直接 dlopen），失败回退系统 Vulkan",
                 style = MaterialTheme.typography.labelSmall,
                 color = verdictColor("WARN"),
             )

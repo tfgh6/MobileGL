@@ -251,7 +251,7 @@ fun MobileGlPluginApp() {
             }
             buildString {
                 append(if (config.turnipEnabled) "已启用 · Turnip" else "未启用 · 系统 Vulkan")
-                if (selected?.archiveOnly == true) append(" · 外部实验（可能回退）")
+                if (selected?.experimental == true) append(" · 外部实验（可能回退）")
                 selected?.version?.let { append(" · Mesa ").append(it) }
                 append(" · ").append(gpuLabel)
             }
@@ -394,6 +394,7 @@ fun MobileGlPluginApp() {
                             turnipDrivers = turnipDrivers,
                             turnipGpu = turnipGpu,
                             turnipLoading = turnipScanning,
+                            configFileShared = runtimeStatus.sharedWritten,
                             config = config,
                             onRefresh = {
                                 drivers = driverRepository.list()
