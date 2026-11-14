@@ -65,6 +65,7 @@ class ExternalLibraryRepository(private val context: Context) {
             } ?: error("无法读取所选文件")
             if (temp.length() > 128L * 1024 * 1024) error("文件超过 128 MiB")
             if (!isArm64Elf(temp)) error("不是 arm64 ELF（需要 AArch64 64 位小端 .so）")
+            if (!isMobileGlLibrary(temp)) error("不是 MobileGL 的 .so（需要包含 MobileGL Driver POST / EGL 符号）")
             val baseName = sanitize(uri.lastPathSegment?.substringAfterLast('/') ?: "imported.so")
             val name = if (baseName.endsWith(".so")) baseName else baseName + ".so"
             root.mkdirs()
@@ -95,6 +96,15 @@ class ExternalLibraryRepository(private val context: Context) {
     private fun sanitize(name: String): String =
         name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(96)
 
+    private fun isMobileGlLibrary(file: File): Boolean {
+        if (file.length() > 64L * 1024 * 1024) return false
+        val text = runCatching { String(file.readBytes(), Charsets.ISO_8859_1) }.getOrNull() ?: return false
+        if (!text.contains("MobileGL")) return false
+        val hasPost = text.contains("nativeRunDriverPost") || text.contains("MobileGL Driver POST")
+        val hasEgl = text.contains("eglGetDisplay") && text.contains("glGetString")
+        return hasPost || hasEgl
+    }
+
     private fun isArm64Elf(file: File): Boolean {
         val header = ByteArray(20)
         val read = file.inputStream().use { it.read(header) }
@@ -120,4 +130,29 @@ class ExternalLibraryRepository(private val context: Context) {
         }
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
+}
+
+/** Best-effort read of the MobileGL version/GIT revision from an imported .so. */
+fun scanMobileGlVersion(file: File): Pair<String?, String?> {
+    val bytes = runCatching { file.readBytes() }.getOrNull() ?: return null to null
+    val text = String(bytes, Charsets.ISO_8859_1)
+    val versions = Regex("MobileGL\\s+([0-9][0-9A-Za-z._+\\-]{0,40})").findAll(text).toList()
+    val commits = Regex("GIT@([0-9a-fA-F]{6,40})").findAll(text).toList()
+    if (versions.isEmpty()) return null to commits.firstOrNull()?.groupValues?.getOrNull(1)
+    // Pick the version string closest to a GIT@ marker: large binaries contain
+    // unrelated "MobileGL <version>" strings in embedded docs/constants.
+    var bestVersion = versions.last()
+    var bestCommit: MatchResult? = commits.firstOrNull()
+    var bestDistance = Int.MAX_VALUE
+    for (version in versions) {
+        for (commit in commits) {
+            val distance = kotlin.math.abs(version.range.first - commit.range.first)
+            if (distance < bestDistance) {
+                bestDistance = distance
+                bestVersion = version
+                bestCommit = commit
+            }
+        }
+    }
+    return bestVersion.groupValues.getOrNull(1) to bestCommit?.groupValues?.getOrNull(1)
 }

@@ -48,6 +48,10 @@ def mobileGlAbiFilters = {
 // output: a JSON document stored in @string/config and referenced from the
 // "fclPlugin_V2" manifest meta-data. The launcher substitutes the "**|" prefix with
 // the plugin's real nativeLibraryDir at launch time.
+// Launcher-facing renderer name is intentionally backend-agnostic.
+def mobileGlRendererDisplayName = { String backendType -> 'MobileGL' }
+def mobileGlMinMCVer = null
+def mobileGlMaxMCVer = null
 def mobileGlRendererConfig = { String backendType ->
     def values = ['DirectGLES', 'DirectVulkan']
     def env = [
@@ -58,34 +62,28 @@ def mobileGlRendererConfig = { String backendType ->
              items: [defaultValue: backendType, values: values]],
             [type: 'ToggleableEnv', key: 'MOBILEGL_DISABLE_TIMERQUERY', value: '1',
              title: [key: 'mobilegl_disable_timerquery_title'], toggle: false],
-            [type: 'ToggleableEnv', key: 'MOBILEGL_DISABLE_SUBGROUP', value: '1',
-             title: [key: 'mobilegl_disable_subgroup_title'], toggle: false],
-            [type: 'ToggleableEnv', key: 'MOBILEGL_VULKAN_R11G11B10F_FALLBACK', value: '1',
+            [type: 'SelectableEnv', key: 'MOBILEGL_SUBGROUP_EMULATION',
+             title: [key: 'mobilegl_disable_subgroup_title'],
+             items: [defaultValue: 'Auto', values: ['Auto', 'ForceOn', 'ForceOff']]],
+            [type: 'ToggleableEnv', key: 'MOBILEGL_MAGMA_R11G11B10F_FALLBACK', value: '1',
              title: [key: 'mobilegl_r11g11b10f_fallback_title'], toggle: false],
+            [type: 'CustomizableEnv', key: 'MOBILEGL_FRAMES_IN_FLIGHT', defaultValue: '3'],
+            [type: 'ToggleableEnv', key: 'MOBILEGL_ESPRYT_USE_ANGLE', value: '1', toggle: false],
+            [type: 'ToggleableEnv', key: 'MOBILEGL_COHERENT_AS_FLUSH', value: '1', toggle: false],
+            [type: 'ToggleableEnv', key: 'MOBILEGL_RELAXED_SEMANTICS', value: '1', toggle: false],
     ]
-    if (mobileGlUseSfpew) {
-        env.add([type: 'SelectableEnv', key: 'SFPEW_EGL',
-                 title: [key: 'sfpew_backend_title'], check: true,
-                 items: [defaultValue: 'libMobileGL.so', values: ['libEGL.so', 'libMobileGL.so']]])
-        env.add([type: 'ToggleableEnv', key: 'SFPEW_RELAXED_CONTEXT', value: '1',
-                 title: [key: 'sfpew_relaxed_context_title'], toggle: false])
-        env.add([type: 'ToggleableEnv', key: 'SFPEW_NO_MULTIDRAWARRAYS', value: '1',
-                 title: [key: 'sfpew_no_multidrawarrays_title'], toggle: false])
-        env.add([type: 'ToggleableEnv', key: 'SFPEW_NO_LIST_BATCH', value: '1',
-                 title: [key: 'sfpew_no_list_batch_title'], toggle: false])
-    }
     def glLib = !mobileGlPrebuiltLibsDir.isEmpty()
             ? '**|libRendererProxy.so'
             : (mobileGlUseSfpew ? '**|libSimpleFPEWrapper.so' : '**|libMobileGL.so')
     def config = [
-            displayName    : mobileGlUseSfpew ? 'MobileGL SFPEW' : 'MobileGL',
+            displayName    : mobileGlRendererDisplayName(backendType),
             rendererId     : 'opengles3',
             rendererGLPath : glLib,
             rendererEGLPath: glLib,
             dlopenLibPaths : [],
             env            : env,
-            minMCVer       : null,
-            maxMCVer       : null,
+            minMCVer       : mobileGlMinMCVer,
+            maxMCVer       : mobileGlMaxMCVer,
     ]
     groovy.json.JsonOutput.toJson(config).replace('"', '\\"')
 }
@@ -147,8 +145,8 @@ android {
         // strictly increasing across releases (monotonic within a month and
         // across month/year rollovers), so every build is an installable
         // upgrade. Max ~99_129999, well under Android's 2_100_000_000 ceiling.
-        versionCode mobileGlVersionMajor * 1000000 + mobileGlVersionMinor * 10000 + mobileGlMonthlyRevision
-        versionName String.format('%d.%02d.%s', mobileGlVersionMajor, mobileGlVersionMinor, mobileGlGitShortHash)
+        versionCode 26070010
+        versionName '26.0.9'
 
         ndk {
             def abiFiltersOverride = mobileGlAbiFilters()
@@ -177,9 +175,11 @@ android {
             resValue 'string', 'mobilegl_default_backend', 'DirectGLES'
             resValue 'string', 'config', mobileGlRendererConfig('DirectGLES')
             manifestPlaceholders = [
-                    appLabel: 'MobileGL Espryt',
-                    des     : 'MobileGL Espryt',
-                    renderer: !mobileGlPrebuiltLibsDir.isEmpty() ? 'MobileGL Proxy:libRendererProxy.so:/libRendererProxy.so' : (mobileGlUseSfpew ? 'MobileGL SFPEW:libSimpleFPEWrapper.so:/libSimpleFPEWrapper.so' : 'MobileGL Espryt:libMobileGL.so:/libMobileGL.so'),
+                    appLabel: 'MobileGL_UI',
+                    des     : '来自 MobileGL_UI',
+                    renderer: !mobileGlPrebuiltLibsDir.isEmpty() ? mobileGlRendererDisplayName('DirectGLES') + ':libRendererProxy.so:/libRendererProxy.so' : (mobileGlUseSfpew ? mobileGlRendererDisplayName('DirectGLES') + ':libSimpleFPEWrapper.so:/libSimpleFPEWrapper.so' : mobileGlRendererDisplayName('DirectGLES') + ':libMobileGL.so:/libMobileGL.so'),
+                    minMCVer: mobileGlMinMCVer ?: '',
+                    maxMCVer: mobileGlMaxMCVer ?: '',
                     boatEnv : env,
                     pojavEnv: env,
             ]
@@ -191,9 +191,11 @@ android {
             resValue 'string', 'mobilegl_default_backend', 'DirectVulkan'
             resValue 'string', 'config', mobileGlRendererConfig('DirectVulkan')
             manifestPlaceholders = [
-                    appLabel: 'MobileGL Magma',
-                    des     : 'MobileGL Magma',
-                    renderer: !mobileGlPrebuiltLibsDir.isEmpty() ? 'MobileGL Proxy:libRendererProxy.so:/libRendererProxy.so' : (mobileGlUseSfpew ? 'MobileGL SFPEW:libSimpleFPEWrapper.so:/libSimpleFPEWrapper.so' : 'MobileGL Magma:libMobileGL.so:/libMobileGL.so'),
+                    appLabel: 'MobileGL_UI',
+                    des     : '来自 MobileGL_UI',
+                    renderer: !mobileGlPrebuiltLibsDir.isEmpty() ? mobileGlRendererDisplayName('DirectVulkan') + ':libRendererProxy.so:/libRendererProxy.so' : (mobileGlUseSfpew ? mobileGlRendererDisplayName('DirectVulkan') + ':libSimpleFPEWrapper.so:/libSimpleFPEWrapper.so' : mobileGlRendererDisplayName('DirectVulkan') + ':libMobileGL.so:/libMobileGL.so'),
+                    minMCVer: mobileGlMinMCVer ?: '',
+                    maxMCVer: mobileGlMaxMCVer ?: '',
                     boatEnv : env,
                     pojavEnv: env,
             ]
@@ -205,6 +207,18 @@ android {
             dimension 'profile'
             applicationIdSuffix '.trace'
             versionNameSuffix '-trace'
+        }
+    }
+
+    def fixedDebugKeystore = file('../debug.keystore')
+    if (fixedDebugKeystore.exists()) {
+        signingConfigs {
+            debug {
+                storeFile fixedDebugKeystore
+                storePassword 'android'
+                keyAlias 'mobilegl'
+                keyPassword 'android'
+            }
         }
     }
 
@@ -220,6 +234,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            if (fixedDebugKeystore.exists()) {
+                signingConfig signingConfigs.debug
+            }
+        }
         release {
             debuggable debuggableRelease
             minifyEnabled false

@@ -295,7 +295,9 @@ endif()
 if (ANDROID)
     list(APPEND SOURCE_FILES
         MobileGL/MG_Util/SelfTest/DriverPostJni.cpp
+        ${CMAKE_SOURCE_DIR}/3rdparty/volk/volk.c
     )
+    set(MOBILEGL_ANDROID_VOLK_DIR ${CMAKE_SOURCE_DIR}/3rdparty/volk)
 endif()
 
 set(MOBILEGL_LINK_LIBRARIES
@@ -347,6 +349,19 @@ endif()
 target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC
     ${MOBILEGL_INCLUDE_DIR}
 )
+
+if (ANDROID)
+    target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC
+        ${MOBILEGL_ANDROID_VOLK_DIR}
+    )
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PUBLIC
+        VK_NO_PROTOTYPES
+        VK_USE_PLATFORM_ANDROID_KHR
+    )
+    target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE
+        -include ${MOBILEGL_ANDROID_VOLK_DIR}/volk.h
+    )
+endif()
 
 target_link_libraries(${CMAKE_PROJECT_NAME}
     PUBLIC
@@ -417,7 +432,7 @@ if (ANDROID)
     target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC
         android
         log
-        vulkan
+        dl
     )
 endif()
 

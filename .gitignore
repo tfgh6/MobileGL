@@ -1,4 +1,4 @@
-﻿################################################################################
+################################################################################
 # 此 .gitignore 文件已由 Microsoft(R) Visual Studio 自动创建。
 ################################################################################
 
@@ -25,3 +25,12 @@ MobileGL/MG*/cmake-build*
 /android-plugin/app/src/trace/jniLibs
 /android-plugin/local.properties
 tools/trace_replay/work/
+# Local build/diagnostic artifacts (Turnip integration)
+/analysis/
+/promo/
+/logs/
+/latest_artifact/
+/latest_mobilegl_artifact.zip
+/turnip/
+/android-plugin/dist/
+*.log

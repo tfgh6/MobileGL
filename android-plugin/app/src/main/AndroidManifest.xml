@@ -16,6 +16,7 @@
         android:hasCode="true"
         android:enableOnBackInvokedCallback="true"
         android:label="${appLabel}"
+        android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.MobileGLPlugin">
 
         <activity
@@ -74,6 +75,7 @@
         <meta-data
             android:name="fclPlugin"
             android:value="true" />
+
         <meta-data
             android:name="des"
             android:value="${des}" />
@@ -86,6 +88,12 @@
         <meta-data
             android:name="pojavEnv"
             android:value="${pojavEnv}" />
+        <meta-data
+            android:name="minMCVer"
+            android:value="${minMCVer}" />
+        <meta-data
+            android:name="maxMCVer"
+            android:value="${maxMCVer}" />
     </application>
 
 </manifest>

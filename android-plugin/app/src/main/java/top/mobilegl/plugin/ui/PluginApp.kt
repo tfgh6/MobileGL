@@ -48,6 +48,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -94,6 +95,7 @@ import top.mobilegl.plugin.driver.DriverPack
 import top.mobilegl.plugin.driver.DriverRepository
 import top.mobilegl.plugin.driver.ExternalLibrary
 import top.mobilegl.plugin.driver.ExternalLibraryRepository
+import top.mobilegl.plugin.driver.scanMobileGlVersion
 import top.mobilegl.plugin.selftest.BackendReport
 import top.mobilegl.plugin.selftest.GlInfoProbe
 import top.mobilegl.plugin.selftest.SelfTestRepository
@@ -197,6 +199,41 @@ fun MobileGlPluginApp() {
             }
         }
 
+        val prefs = remember { context.getSharedPreferences("mobilegl_plugin", Context.MODE_PRIVATE) }
+        var showPermissionDialog by remember {
+            mutableStateOf(!hasAllFilesAccess() && !prefs.getBoolean("permission_prompted", false))
+        }
+        if (showPermissionDialog) {
+            AlertDialog(
+                onDismissRequest = { showPermissionDialog = false },
+                title = { Text("需要文件访问权限") },
+                text = {
+                    Text(
+                        "MobileGL 需要“所有文件访问权限”来写入 /sdcard/MobileGL/runtime.conf，" +
+                            "启动器和游戏进程才能读取配置。授权后应用会自动重启。"
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        prefs.edit().putBoolean("permission_prompted", true).putBoolean("awaiting_restart", true).apply()
+                        showPermissionDialog = false
+                        val packageUri = Uri.parse("package:" + context.packageName)
+                        runCatching {
+                            context.startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, packageUri))
+                        }.onFailure {
+                            context.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                        }
+                    }) { Text("去授权") }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        prefs.edit().putBoolean("permission_prompted", true).apply()
+                        showPermissionDialog = false
+                    }) { Text("稍后") }
+                },
+            )
+        }
+
         val tabIndex = TABS.indexOfFirst { it.dest == dest }
         val isSubPage = tabIndex < 0
 
@@ -270,15 +307,7 @@ fun MobileGlPluginApp() {
                             probing = probing,
                             drivers = drivers,
                             externalCount = externalLibraries.size,
-                            onToggleSfpew = { enabled ->
-                                val updatedEnv = LinkedHashMap(config.env)
-                                updatedEnv["SFPEW_ENABLED"] = if (enabled) "1" else "0"
-                                persist(config.copy(sfpewEnabled = enabled, env = updatedEnv))
-                            },
                             onOpenSettings = { lastTab = 1; dest = Dest.Settings },
-                            onOpenDrivers = { lastTab = 0; dest = Dest.Drivers },
-                            onOpenConfig = { lastTab = 0; dest = Dest.ConfigFile },
-                            onOpenSelfTest = { lastTab = 0; dest = Dest.SelfTest },
                             glInfo = glInfo,
                         )
                         Dest.Settings -> SettingsTab(
@@ -314,7 +343,19 @@ fun MobileGlPluginApp() {
                             onClearActive = { persist(config.copy(activeDriverId = null, activeIcdPath = null)) },
                             onActivateLibrary = { lib ->
                                 val shared = lib?.sharedFile?.absolutePath ?: lib?.file?.absolutePath
-                                persist(config.copy(activeRendererLibPath = shared, selfTestLibraryPath = lib?.file?.absolutePath))
+                                val (version, commit) = lib?.file?.let { scanMobileGlVersion(it) } ?: (null to null)
+                                val updated = config.copy(
+                                    activeRendererLibPath = shared,
+                                    selfTestLibraryPath = lib?.file?.absolutePath,
+                                    activeRendererVersion = version,
+                                    activeRendererCommit = commit,
+                                )
+                                persist(updated)
+                                scope.launch {
+                                    probing = true
+                                    report = selfTestRepository.run(updated, lib?.file?.absolutePath)
+                                    probing = false
+                                }
                             },
                         )
                         Dest.ConfigFile -> ConfigScreen(
@@ -372,32 +413,41 @@ private data class DeviceInfo(
     val gles: String,
     val vulkan: String,
     val memory: String,
+    val coreVersion: String,
+    val coreCommit: String?,
 )
 
-private fun deviceInfo(context: Context, report: SelfTestResult?, glInfo: GlInfoProbe.Info?): DeviceInfo {
+private fun deviceInfo(context: Context, report: SelfTestResult?, glInfo: GlInfoProbe.Info?, config: PluginConfig): DeviceInfo {
     val glesReport = report?.backends?.firstOrNull { it.backend.contains("gles", true) }
     val vulkanReport = report?.backends?.firstOrNull { it.backend.contains("vulkan", true) }
     val glesRenderer = glesReport?.renderer.orEmpty()
     val vulkanRenderer = vulkanReport?.renderer.orEmpty()
 
-    val gpu = Regex("Mali-[A-Za-z0-9-]+(?: MC\\d+)?").find(vulkanRenderer)?.value
-        ?: Regex("Mali-[A-Za-z0-9-]+(?: MC\\d+)?").find(glesRenderer)?.value
-        ?: (vulkanRenderer.substringBefore('(').trim().ifEmpty { "未知 GPU" })
-    val gles = Regex("OpenGL ES [0-9.]+").find(glesRenderer)?.value ?: "未检测到"
-    val api = Regex("instance API ([0-9.]+)").find(
-        vulkanReport?.checks?.firstOrNull { it.name.contains("Vulkan instance") }?.detail.orEmpty()
-    )?.groupValues?.getOrNull(1)
+    val gpu = vulkanRenderer.substringBefore(" (").trim().ifEmpty {
+        glesRenderer.substringBefore(" (").trim().ifEmpty {
+            glInfo?.renderer.orEmpty().ifBlank { "未知 GPU" }
+        }
+    }
+    val gles = glesRenderer.ifBlank { glInfo?.version.orEmpty().ifBlank { "未检测到" } }
     val vulkan = when {
         vulkanReport == null -> "未检测到"
         !vulkanReport.available -> "不可用"
-        api != null -> "Vulkan " + api
-        else -> "Vulkan"
+        vulkanRenderer.isBlank() -> "Vulkan"
+        else -> vulkanRenderer
     }
+    val versionDetail = (vulkanReport?.checks.orEmpty() + glesReport?.checks.orEmpty())
+        .firstOrNull { it.name.contains("reported GL_VERSION", true) }?.detail.orEmpty()
+    val core = Regex("MobileGL\\s+([0-9][^,\\s]*)").find(versionDetail)?.groupValues?.getOrNull(1)
+    val coreVersion = config.activeRendererVersion
+        ?: core?.removePrefix("v")?.ifBlank { null }
+        ?: BuildConfig.VERSION_NAME
+    val coreCommit = config.activeRendererCommit
+        ?: Regex("GIT@([0-9a-fA-F]+)").find(versionDetail)?.groupValues?.getOrNull(1)
     val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
     val mi = ActivityManager.MemoryInfo()
     am.getMemoryInfo(mi)
     val memory = String.format(Locale.US, "%.1f GB", mi.totalMem / 1024.0 / 1024.0 / 1024.0)
-    return DeviceInfo(gpu.ifBlank { "未知 GPU" }, gles, vulkan, memory)
+    return DeviceInfo(gpu, gles, vulkan, memory, coreVersion, coreCommit)
 }
 
 @Composable
@@ -407,21 +457,21 @@ private fun HomeTab(
     probing: Boolean,
     drivers: List<DriverPack>,
     externalCount: Int,
-    onToggleSfpew: (Boolean) -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenDrivers: () -> Unit,
-    onOpenConfig: () -> Unit,
-    onOpenSelfTest: () -> Unit,
     glInfo: GlInfoProbe.Info?,
 ) {
     val context = LocalContext.current
-    val info = remember(report, glInfo) { deviceInfo(context, report, glInfo) }
+    val info = remember(report, glInfo, config.activeRendererVersion, config.activeRendererCommit) { deviceInfo(context, report, glInfo, config) }
     val authorized = hasAllFilesAccess()
     val sfpewActive = config.sfpewEnabled && BuildConfig.SFPEW_BUNDLED
-    val summary = buildString {
-        append(if (sfpewActive) "SFPEW" else "MobileGL")
-        if (info.gles != "未检测到") append(" · ").append(info.gles)
-        if (info.vulkan != "未检测到") append(" · ").append(info.vulkan)
+    val summary = when (config.backend) {
+        "DirectVulkan" -> if (sfpewActive) "MobileGL-Magma-SFPEW" else "MobileGL-Magma"
+        "DirectGLES" -> buildString {
+            append("MobileGL-Espryt")
+            if (config.env["MOBILEGL_ESPRYT_USE_ANGLE"] == "1") append("-angle")
+            if (sfpewActive) append("-SFPEW")
+        }
+        else -> "MobileGL"
     }
 
     Column(
@@ -437,7 +487,7 @@ private fun HomeTab(
             Text("GL", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = ORANGE)
         }
         Text(
-            "v" + BuildConfig.VERSION_NAME,
+            "v" + info.coreVersion + (info.coreCommit?.let { " (" + it + ")" } ?: ""),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 4.dp),
@@ -483,33 +533,7 @@ private fun HomeTab(
             }
         }
 
-        Spacer(Modifier.height(12.dp))
-        if (BuildConfig.SFPEW_BUNDLED) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("启用 SFPEW 包装器", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                        Text("由 libRendererProxy 启动时读取；切换后重启游戏生效", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Switch(checked = config.sfpewEnabled, onCheckedChange = onToggleSfpew)
-                }
-            }
-        }
-
         Spacer(Modifier.height(20.dp))
-        SectionLabel("工具")
-        ActionRow("驱动管理", "驱动包、外部 .so 导入/更新", onOpenDrivers)
-        ActionRow("启动配置", "runtime.conf 与环境变量", onOpenConfig)
-        ActionRow("驱动自检", "失败项、替代方案与影响说明", onOpenSelfTest)
-
-        Spacer(Modifier.height(10.dp))
         Text(
             "设备：" + Build.MODEL + " · Android " + Build.VERSION.RELEASE + " · 驱动包 " + drivers.size + " 个 · 外部库 " + externalCount + " 个",
             style = MaterialTheme.typography.labelSmall,
@@ -578,7 +602,10 @@ private fun InfoTab(
         SectionLabel("应用")
         InfoCard {
             InfoRow("版本", BuildConfig.VERSION_NAME)
-            LinkRow("GitHub 开源页面", "MobileGL / SimpleFPEWrapper") {
+            LinkRow("GitHub 仓库", "github.com/tfgh6/MobileGL-Android-Plugin") {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/tfgh6/MobileGL-Android-Plugin")))
+            }
+            LinkRow("上游项目", "MobileGL / SimpleFPEWrapper") {
                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/MobileGL-Dev")))
             }
             LinkRow("驱动自检", "查看完整报告与说明", onOpenSelfTest)

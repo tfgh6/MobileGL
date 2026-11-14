@@ -1873,6 +1873,20 @@ void main() {
     }
 
     void VulkanRenderer::Initialize() {
+#ifdef __ANDROID__
+        // MobileGL is linked without libvulkan on Android: volk dlopen()s the
+        // loader at runtime, so the launcher's Turnip linkerhook can redirect
+        // the vendor driver regardless of how the plugin was installed.
+        static Bool volkReady = false;
+        if (!volkReady) {
+            const VkResult volkResult = volkInitialize();
+            if (volkResult != VK_SUCCESS) {
+                MGLOG_E("volkInitialize() failed: %d; Vulkan backend cannot start", static_cast<Int>(volkResult));
+                MOBILEGL_ASSERT(false, "volkInitialize failed");
+            }
+            volkReady = true;
+        }
+#endif
         CreateInstance();
         CreateSurface();
         PickPhysicalDevice();

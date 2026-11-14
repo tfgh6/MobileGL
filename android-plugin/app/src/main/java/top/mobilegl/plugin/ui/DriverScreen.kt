@@ -159,9 +159,22 @@ fun DriverScreen(
             }
         }
 
-        SectionCard("驱动包（PanVK / Vulkan ICD 预留）") {
+        SectionCard("骁龙 Turnip（内置 · Adreno）") {
             Text(
-                "带 driver.json 的 zip：安装、校验、生成 ICD。PanVK 阶段接入 loader 后才会影响游戏。",
+                "本 APK 内置 libvulkan_freedreno.so（Mesa Turnip，Adreno 6xx/7xx/8xx）。" +
+                    "在 FCL / ZL2 的版本设置 → 驱动中选择「MobileGL Turnip (Snapdragon)」，" +
+                    "启动器会通过 linkerhook 把它接到 MobileGL 的 Vulkan 后端；不选择时自动使用系统 Vulkan。",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(6.dp))
+            InfoRow("适用 GPU", "Adreno 6xx / 7xx / 8xx")
+            InfoRow("驱动库", "libvulkan_freedreno.so（APK 内置）")
+            InfoRow("注意", "Mali / 非 Adreno 设备请勿选择；系统 Vulkan 会自动回退")
+        }
+
+        SectionCard("驱动包（PanVK / Vulkan ICD · 未完善）") {
+            Text(
+                "带 driver.json 的 zip：安装、校验、生成 ICD。功能尚未完善，PanVK loader 接入前不会影响游戏。",
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))

@@ -12,12 +12,17 @@ import org.json.JSONObject
  */
 data class PluginConfig(
     val backend: String = "DirectVulkan",
-    val sfpewEnabled: Boolean = true,
+    val sfpewEnabled: Boolean = false,
     val autoSelfTest: Boolean = false,
     val activeDriverId: String? = null,
     val activeIcdPath: String? = null,
     val selfTestLibraryPath: String? = null,
     val activeRendererLibPath: String? = null,
+    val activeRendererVersion: String? = null,
+    val activeRendererCommit: String? = null,
+    val turnipEnabled: Boolean = false,
+    val turnipDriverPath: String? = null,
+    val turnipDriverVersion: String? = null,
     val env: Map<String, String> = defaultEnv("DirectVulkan"),
     val theme: String = "dark",
 ) {
@@ -31,6 +36,11 @@ data class PluginConfig(
         root.put("activeIcdPath", activeIcdPath ?: JSONObject.NULL)
         root.put("selfTestLibraryPath", selfTestLibraryPath ?: JSONObject.NULL)
         root.put("activeRendererLibPath", activeRendererLibPath ?: JSONObject.NULL)
+        root.put("activeRendererVersion", activeRendererVersion ?: JSONObject.NULL)
+        root.put("activeRendererCommit", activeRendererCommit ?: JSONObject.NULL)
+        root.put("turnipEnabled", turnipEnabled)
+        root.put("turnipDriverPath", turnipDriverPath ?: JSONObject.NULL)
+        root.put("turnipDriverVersion", turnipDriverVersion ?: JSONObject.NULL)
         val envJson = JSONObject()
         env.forEach { (key, value) -> envJson.put(key, value) }
         root.put("env", envJson)
@@ -63,12 +73,17 @@ data class PluginConfig(
             }
             return PluginConfig(
                 backend = backend,
-                sfpewEnabled = root.optBoolean("sfpewEnabled", true),
+                sfpewEnabled = root.optBoolean("sfpewEnabled", false),
                 autoSelfTest = root.optBoolean("autoSelfTest", false),
                 activeDriverId = if (root.isNull("activeDriverId")) null else root.optString("activeDriverId").ifEmpty { null },
                 activeIcdPath = if (root.isNull("activeIcdPath")) null else root.optString("activeIcdPath").ifEmpty { null },
                 selfTestLibraryPath = if (root.isNull("selfTestLibraryPath")) null else root.optString("selfTestLibraryPath").ifEmpty { null },
                 activeRendererLibPath = if (root.isNull("activeRendererLibPath")) null else root.optString("activeRendererLibPath").ifEmpty { null },
+                activeRendererVersion = if (root.isNull("activeRendererVersion")) null else root.optString("activeRendererVersion").ifEmpty { null },
+                activeRendererCommit = if (root.isNull("activeRendererCommit")) null else root.optString("activeRendererCommit").ifEmpty { null },
+                turnipEnabled = root.optBoolean("turnipEnabled", false),
+                turnipDriverPath = if (root.isNull("turnipDriverPath")) null else root.optString("turnipDriverPath").ifEmpty { null },
+                turnipDriverVersion = if (root.isNull("turnipDriverVersion")) null else root.optString("turnipDriverVersion").ifEmpty { null },
                 env = env,
                 theme = root.optString("theme", "dark"),
             )
