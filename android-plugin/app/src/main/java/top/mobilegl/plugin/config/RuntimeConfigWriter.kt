@@ -38,8 +38,10 @@ class RuntimeConfigWriter(private val context: Context) {
             }
             // Read by libRendererProxy.so before the launcher starts the game.
             appendLine("RENDERER_MODE=" + if (config.sfpewEnabled) "sfpew" else "direct")
+            // Turnip selection is written unconditionally: a stale "1" from an older install
+            // must not survive when the user turns the switch off.
+            appendLine("MOBILEGL_TURNIP_ENABLED=" + if (config.turnipEnabled) "1" else "0")
             if (config.turnipEnabled) {
-                appendLine("MOBILEGL_TURNIP_ENABLED=1")
                 config.turnipDriverPath?.takeIf { it.isNotBlank() }?.let { appendLine("MOBILEGL_TURNIP_PATH=" + it) }
             }
             config.activeRendererLibPath?.takeIf { it.isNotBlank() }?.let { appendLine("RENDERER_SO=" + it) }
