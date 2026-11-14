@@ -16,9 +16,11 @@
 #include <unistd.h>
 
 #include <cctype>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -29,6 +31,39 @@
 
 namespace MobileGL::MG_Util::BackendLoader {
     namespace {
+        // The game process is not attached to a PC when testers try Turnip, so the
+        // bootstrap decisions are duplicated into a shared file that the plugin UI
+        // can read and share. UI creates the directory before launch.
+        void DiagLog(const char* fmt, ...) {
+            const char* overridePath = std::getenv("MOBILEGL_DIAG_LOG");
+            const std::string path = (overridePath != nullptr && overridePath[0] != '\0')
+                                         ? std::string(overridePath)
+                                         : std::string("/sdcard/MobileGL/logs/game.log");
+            ::mkdir("/sdcard/MobileGL", 0770);
+            ::mkdir("/sdcard/MobileGL/logs", 0770);
+            struct stat status {};
+            if (::stat(path.c_str(), &status) == 0 && status.st_size > 512 * 1024) {
+                const std::string oldPath = path + ".old";
+                ::remove(oldPath.c_str());
+                ::rename(path.c_str(), oldPath.c_str());
+            }
+            std::ofstream output(path, std::ios::app);
+            if (!output.is_open()) {
+                return;
+            }
+            char message[2048];
+            va_list args;
+            va_start(args, fmt);
+            std::vsnprintf(message, sizeof(message), fmt, args);
+            va_end(args);
+            const std::time_t now = std::time(nullptr);
+            std::tm local {};
+            localtime_r(&now, &local);
+            char timestamp[32];
+            std::strftime(timestamp, sizeof(timestamp), "%m-%d %H:%M:%S", &local);
+            output << timestamp << " [Turnip] " << message << "\n";
+        }
+
         // libadrenotools is statically linked into libMobileGL on arm64-v8a (see CMakeLists.txt).
         // It must not be loaded from the plugin's nativeLibraryDir with dlopen(): that
         // directory is not part of the app linker namespace's search path.
@@ -343,6 +378,8 @@ namespace MobileGL::MG_Util::BackendLoader {
             }
             result.TurnipRequested = true;
             MGLOG_I("Turnip: enabled through %s (%s=%s)", enabledSource, kTurnipEnabledKey, enabledValue.c_str());
+            DiagLog("enabled via %s (%s=%s), api=%d", enabledSource, kTurnipEnabledKey, enabledValue.c_str(),
+                    android_get_device_api_level());
 
             // libadrenotools relies on a linker-namespace bypass that only exists on API >= 28
             // (linkernsbypass_load_status() is false below that); older devices keep the system loader.
@@ -385,6 +422,8 @@ namespace MobileGL::MG_Util::BackendLoader {
                 driverPath = JoinPath(stagedDirectory, stagedName);
             }
             result.TurnipDriverPath = driverPath;
+            DiagLog("driver path=%s (source=%s), external=%d", driverPath.c_str(), driverSource,
+                    IsExternalStoragePath(DirName(driverPath)) ? 1 : 0);
 
             // hookLibDir must be the plugin nativeLibraryDir. dladdr() is not reliable when the
             // launcher maps libMobileGL.so from a memfd, so an explicit override and the bundled
@@ -412,6 +451,7 @@ namespace MobileGL::MG_Util::BackendLoader {
             }
             result.HookLibraryDir = hookLibraryDirectory;
             MGLOG_I("Turnip: hookLibDir=%s (from %s)", hookLibraryDirectory.c_str(), hookSource);
+            DiagLog("hookLibDir=%s (source=%s)", hookLibraryDirectory.c_str(), hookSource);
 
             // libadrenotools is statically linked on arm64-v8a; opening the .so from the
             // plugin's nativeLibraryDir is not portable across app linker namespaces.
@@ -443,8 +483,11 @@ namespace MobileGL::MG_Util::BackendLoader {
                 MGLOG_W("Turnip: adrenotools_open_libvulkan failed (driver=%s, source=%s, hookLibDir=%s); "
                         "falling back to system Vulkan",
                         driverPath.c_str(), driverSource, hookLibraryDirectory.c_str());
+                DiagLog("FAILED adrenotools_open_libvulkan driver=%s hookLibDir=%s", driverPath.c_str(),
+                        hookLibraryDirectory.c_str());
                 return false;
             }
+            DiagLog("adrenotools_open_libvulkan ok handle=%p driver=%s", vulkanHandle, driverPath.c_str());
 
             const auto getInstanceProcAddr =
                 reinterpret_cast<PFN_vkGetInstanceProcAddr>(dlsym(vulkanHandle, "vkGetInstanceProcAddr"));
@@ -459,6 +502,7 @@ namespace MobileGL::MG_Util::BackendLoader {
             result.VolkResult = VK_SUCCESS;
             MGLOG_I("Turnip: using driver %s (%s) through libadrenotools (hookLibDir=%s)", driverPath.c_str(),
                     driverSource, hookLibraryDirectory.c_str());
+            DiagLog("SUCCESS using Turnip driver=%s source=%s", driverPath.c_str(), driverSource);
             return true;
         }
     } // namespace
@@ -476,6 +520,7 @@ namespace MobileGL::MG_Util::BackendLoader {
         }
         if (result.TurnipRequested) {
             MGLOG_W("Turnip: falling back to the system libvulkan loader");
+            DiagLog("FALLBACK to system libvulkan (Turnip requested)");
         }
 
         result.VolkResult = volkInitialize();
@@ -485,6 +530,7 @@ namespace MobileGL::MG_Util::BackendLoader {
                     static_cast<Int>(result.VolkResult));
         } else {
             MGLOG_I("Vulkan loader: using the system libvulkan loader (volk)");
+            DiagLog("using system libvulkan loader (volk)");
         }
         return result;
     }

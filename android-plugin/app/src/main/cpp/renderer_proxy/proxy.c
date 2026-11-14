@@ -15,13 +15,46 @@
 #include <strings.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <time.h>
 #include <unistd.h>
+#include <stdarg.h>
 
 #include "proxy_symbols.h"
 
 #define TAG "RendererProxy"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+#define DIAG_LOG_DIR "/sdcard/MobileGL/logs"
+#define DIAG_LOG_FILE DIAG_LOG_DIR "/game.log"
+
+static void diag_append(const char *level, const char *fmt, ...) {
+    const char *override_path = getenv("MOBILEGL_DIAG_LOG");
+    const char *path = (override_path && override_path[0]) ? override_path : DIAG_LOG_FILE;
+    mkdir("/sdcard/MobileGL", 0770);
+    mkdir(DIAG_LOG_DIR, 0770);
+    struct stat st;
+    if (stat(path, &st) == 0 && st.st_size > 512 * 1024) {
+        char old_path[PATH_MAX];
+        snprintf(old_path, sizeof(old_path), "%s.old", path);
+        remove(old_path);
+        rename(path, old_path);
+    }
+    FILE *file = fopen(path, "a");
+    if (!file) return;
+    time_t now = time(NULL);
+    struct tm local;
+    localtime_r(&now, &local);
+    char timestamp[32];
+    strftime(timestamp, sizeof(timestamp), "%m-%d %H:%M:%S", &local);
+    fprintf(file, "%s %s [%s] ", timestamp, level, TAG);
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(file, fmt, args);
+    va_end(args);
+    fputc('\n', file);
+    fclose(file);
+}
+
+#define LOGI(...) do { __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__); diag_append("I", __VA_ARGS__); } while (0)
+#define LOGE(...) do { __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__); diag_append("E", __VA_ARGS__); } while (0)
 
 // Never abort the whole game for one unwrapped extension: return 0 instead.
 // EGL init paths are always resolved; this only guards optional Desktop-GL
