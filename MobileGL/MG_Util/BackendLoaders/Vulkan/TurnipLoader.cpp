@@ -34,7 +34,29 @@ namespace MobileGL::MG_Util::BackendLoader {
         // The game process is not attached to a PC when testers try Turnip, so the
         // bootstrap decisions are duplicated into a shared file that the plugin UI
         // can read and share. UI creates the directory before launch.
+        Bool DiagEnabled() {
+            const char* environmentValue = std::getenv("MOBILEGL_DIAG_LOG_ENABLED");
+            if (environmentValue != nullptr && environmentValue[0] != '\0') {
+                return environmentValue[0] != '0' && std::strcmp(environmentValue, "false") != 0;
+            }
+            const char* configuredPath = std::getenv("MOBILEGL_CONFIG_FILE");
+            const std::string path = (configuredPath != nullptr && configuredPath[0] != '\0')
+                                         ? std::string(configuredPath)
+                                         : std::string("/sdcard/MobileGL/runtime.conf");
+            std::ifstream config(path);
+            std::string line;
+            while (std::getline(config, line)) {
+                if (line.rfind("MOBILEGL_DIAG_LOG_ENABLED=", 0) != 0) continue;
+                const std::string value = line.substr(std::strlen("MOBILEGL_DIAG_LOG_ENABLED="));
+                return !value.empty() && value[0] != '0' && value != "false";
+            }
+            return false;
+        }
+
         void DiagLog(const char* fmt, ...) {
+            if (!DiagEnabled()) {
+                return;
+            }
             const char* overridePath = std::getenv("MOBILEGL_DIAG_LOG");
             const std::string path = (overridePath != nullptr && overridePath[0] != '\0')
                                          ? std::string(overridePath)

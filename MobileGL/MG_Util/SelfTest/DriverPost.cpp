@@ -812,6 +812,14 @@ namespace MobileGL::MG_Util::SelfTest {
         instanceStageDone(loaderBootstrap.UsingTurnip
                               ? "Turnip loader initialized through libadrenotools"
                               : "Vulkan loader initialized (system libvulkan)");
+        if (loaderBootstrap.UsingTurnip) {
+            builder.Pass("Turnip loader", "Turnip active: " + loaderBootstrap.TurnipDriverPath);
+        } else if (loaderBootstrap.TurnipRequested) {
+            builder.Warn("Turnip loader", "Turnip requested but the loader fell back to system libvulkan; " +
+                                              std::string("see the diagnostics log"));
+        } else {
+            builder.Info("Turnip loader", "Turnip disabled; using system libvulkan");
+        }
 #else
         void* loaderLibrary = OpenVulkanLoaderLibrary();
         if (loaderLibrary == nullptr) {

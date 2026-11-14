@@ -26,6 +26,10 @@
 #define DIAG_LOG_FILE DIAG_LOG_DIR "/game.log"
 
 static void diag_append(const char *level, const char *fmt, ...) {
+    const char *enabled = getenv("MOBILEGL_DIAG_LOG_ENABLED");
+    if (!enabled || !enabled[0] || strcmp(enabled, "0") == 0 || strcasecmp(enabled, "false") == 0) {
+        return;
+    }
     const char *override_path = getenv("MOBILEGL_DIAG_LOG");
     const char *path = (override_path && override_path[0]) ? override_path : DIAG_LOG_FILE;
     mkdir("/sdcard/MobileGL", 0770);
