@@ -295,9 +295,16 @@ endif()
 if (ANDROID)
     list(APPEND SOURCE_FILES
         MobileGL/MG_Util/SelfTest/DriverPostJni.cpp
+        MobileGL/MG_Util/BackendLoaders/Vulkan/TurnipLoader.cpp
         ${CMAKE_SOURCE_DIR}/3rdparty/volk/volk.c
     )
     set(MOBILEGL_ANDROID_VOLK_DIR ${CMAKE_SOURCE_DIR}/3rdparty/volk)
+    # libadrenotools itself is statically linked (see below), but the hook .so files it loads
+    # from hookLibDir at runtime have to live next to libMobileGL.so in the plugin's
+    # nativeLibraryDir. Stage the prebuilt arm64-v8a set into the build output as well.
+    set(MOBILEGL_ADRENOTOOLS_PREBUILT_DIR
+        "${CMAKE_SOURCE_DIR}/3rdparty/libadrenotools/prebuilt/${ANDROID_ABI}"
+        CACHE PATH "Directory with prebuilt libadrenotools runtime libraries (arm64-v8a)")
 endif()
 
 set(MOBILEGL_LINK_LIBRARIES
@@ -361,6 +368,39 @@ if (ANDROID)
     target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE
         -include ${MOBILEGL_ANDROID_VOLK_DIR}/volk.h
     )
+
+    # libadrenotools is statically linked into libMobileGL. The plugin's nativeLibraryDir is
+    # not part of the app linker namespace's search path, so a DT_NEEDED/dlopen dependency on
+    # libadrenotools.so from there is not portable (the hook .so files are loaded through the
+    # namespace created by adrenotools itself and stay separate in nativeLibraryDir).
+    if (ANDROID_ABI STREQUAL "arm64-v8a")
+        set(BUILD_SHARED_LIBS OFF)
+        add_subdirectory(3rdparty/libadrenotools ${CMAKE_BINARY_DIR}/libadrenotools EXCLUDE_FROM_ALL)
+        target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
+            ${CMAKE_SOURCE_DIR}/3rdparty/libadrenotools/include)
+        target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE MOBILEGL_HAS_ADRENOTOOLS=1)
+        target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE adrenotools)
+        # 16 KB page-size compatible LOAD segments (Android 15+ devices with 16 KB pages).
+        target_link_options(${CMAKE_PROJECT_NAME} PRIVATE -Wl,-z,max-page-size=16384)
+        message(STATUS "MobileGL: libadrenotools statically linked (Turnip loading enabled)")
+    else()
+        message(STATUS "MobileGL: Turnip loading disabled for ABI ${ANDROID_ABI} "
+                       "(libadrenotools supports arm64-v8a only)")
+    endif()
+
+    if (EXISTS "${MOBILEGL_ADRENOTOOLS_PREBUILT_DIR}/libhook_impl.so")
+        message(STATUS "Staging libadrenotools hook libraries from ${MOBILEGL_ADRENOTOOLS_PREBUILT_DIR}")
+        add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                    "${MOBILEGL_ADRENOTOOLS_PREBUILT_DIR}"
+                    "$<TARGET_FILE_DIR:${CMAKE_PROJECT_NAME}>"
+            COMMENT "Staging libadrenotools hook libraries beside libMobileGL.so"
+            VERBATIM
+        )
+    else()
+        message(WARNING "Prebuilt libadrenotools hook libraries not found in ${MOBILEGL_ADRENOTOOLS_PREBUILT_DIR}; "
+                        "Turnip loading will fall back to the system Vulkan loader")
+    endif()
 endif()
 
 target_link_libraries(${CMAKE_PROJECT_NAME}
@@ -433,6 +473,7 @@ if (ANDROID)
         android
         log
         dl
+        c++_shared
     )
 endif()
 

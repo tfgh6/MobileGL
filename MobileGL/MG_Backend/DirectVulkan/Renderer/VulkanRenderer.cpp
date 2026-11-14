@@ -20,6 +20,7 @@
 #include "MG_Util/Converters/MGToVk/RenderStateEnumConverter.h"
 #include "MG_Util/Converters/MGToVk/TextureEnumConverter.h"
 #include "MG_Util/Metrics/TextureMetrics.h"
+#include "MG_Util/BackendLoaders/Vulkan/TurnipLoader.h"
 #include <Config.h>
 #include <cstdio>
 #include <cstdlib>
@@ -1874,17 +1875,16 @@ void main() {
 
     void VulkanRenderer::Initialize() {
 #ifdef __ANDROID__
-        // MobileGL is linked without libvulkan on Android: volk dlopen()s the
-        // loader at runtime, so the launcher's Turnip linkerhook can redirect
-        // the vendor driver regardless of how the plugin was installed.
-        static Bool volkReady = false;
-        if (!volkReady) {
-            const VkResult volkResult = volkInitialize();
-            if (volkResult != VK_SUCCESS) {
-                MGLOG_E("volkInitialize() failed: %d; Vulkan backend cannot start", static_cast<Int>(volkResult));
-                MOBILEGL_ASSERT(false, "volkInitialize failed");
-            }
-            volkReady = true;
+        // MobileGL does not link libvulkan on Android. The Vulkan loader is resolved here:
+        // the plugin-bundled/external Turnip driver through libadrenotools when
+        // MOBILEGL_TURNIP_ENABLED is set, otherwise the system libvulkan loader. Everything is
+        // dlopen()ed at runtime, so no launcher driver setting or linker hook is required.
+        const auto& loaderBootstrap = MG_Util::BackendLoader::EnsureVulkanLoaderInitialized();
+        if (!loaderBootstrap.Initialized) {
+            MGLOG_E("Vulkan loader bootstrap failed; the DirectVulkan backend cannot start");
+            MOBILEGL_ASSERT(false, "Vulkan loader bootstrap failed");
+        } else if (loaderBootstrap.UsingTurnip) {
+            MGLOG_I("DirectVulkan: Turnip driver active: %s", loaderBootstrap.TurnipDriverPath.c_str());
         }
 #endif
         CreateInstance();
@@ -6038,6 +6038,13 @@ void main() {
 
         VK_VERIFY(vkCreateInstance(&instanceInfo, nullptr, &m_instance), "vkCreateInstance failed");
 
+#ifdef __ANDROID__
+        // volkInitialize()/volkInitializeCustom() only populate loader-level entry points;
+        // instance-level commands are loaded from the instance's vkGetInstanceProcAddr.
+        volkLoadInstance(m_instance);
+        MGLOG_I("volkLoadInstance completed");
+#endif
+
         if (m_validationLayersEnabled) VK_VERIFY(SetupDebugMessenger());
     }
 
@@ -6369,6 +6376,12 @@ void main() {
             deviceFeatures.multiDrawIndirect ? "true" : "false",
             m_shaderDrawParametersFeatureEnabled ? "true" : "false");
         VK_VERIFY(vkCreateDevice(m_physicalDevice.handle, &deviceCreateInfo, nullptr, &m_device), "vkCreateDevice");
+
+#ifdef __ANDROID__
+        // Device-level commands (vkQueueSubmit, vkCmd*, ...) live in the device table.
+        volkLoadDevice(m_device);
+        MGLOG_I("volkLoadDevice completed");
+#endif
 
         s_vkCmdDrawIndexedIndirectCount = reinterpret_cast<PFNDrawIndexedIndirectCountFunc>(
             vkGetDeviceProcAddr(m_device, "vkCmdDrawIndexedIndirectCountKHR"));
