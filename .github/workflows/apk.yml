@@ -106,7 +106,7 @@ jobs:
 
       - name: Show ccache stats
         if: always()
-        run: ccache --show-stats
+        run: ccache --show-stats || true
 
       - name: Verify signed APKs
         run: |
