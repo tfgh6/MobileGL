@@ -1,5 +1,7 @@
 name: Official core 16KB
 on:
+  push:
+    branches: [ci/official-16k]
   workflow_dispatch:
     inputs:
       ref:
@@ -15,7 +17,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.ref || 'dev' }}
           submodules: recursive
 
       - name: Install Android NDK
@@ -68,3 +70,4 @@ jobs:
           name: libMobileGL-official-16k
           path: libMobileGL-official-16k.so
           if-no-files-found: error
+
