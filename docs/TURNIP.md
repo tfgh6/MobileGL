@@ -28,6 +28,7 @@ UI 可手动切换内置变体；外部导入仍标实验。
 
 - MobileGL 不再链接系统 `libvulkan.so`：Android 构建使用 volk 运行时加载；
 - 启用 Turnip 时通过静态链接的 libadrenotools 打开选中变体，再 `volkInitializeCustom()`；
+- libadrenotools 的 4 个 hook 库（`libhook_impl` / `libmain_hook` / `libfile_redirect_hook` / `libgsl_alloc_hook`）随 APK 打包，且全部按 16KB page 对齐；
 - 未启用、非 Adreno、API < 28 或加载失败时回退系统 Vulkan，不崩溃；
 - 入口在 MobileGL UI：设置 → 驱动管理 → 骁龙 Turnip；不依赖 FCL/ZL2 的驱动下拉框。
 - runtime.conf：`MOBILEGL_TURNIP_ENABLED=0|1` 总是写；启用时写 `MOBILEGL_TURNIP_PATH=<绝对路径>`。
