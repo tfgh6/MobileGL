@@ -12,6 +12,9 @@
 #include <MGGitHash.h>
 #include <MG_Backend/DirectGLES/BackendObject_DirectGLES.h>
 #include <MG_Backend/DirectVulkan/BackendObject_DirectVulkan.h>
+#if defined(__ANDROID__)
+#include "MG_Util/BackendLoaders/Vulkan/TurnipLoader.h"
+#endif
 #include <MG_Util/Converters/MGToStr/GLExtensionConverter.h>
 #include <chrono>
 #include <thread>
@@ -793,6 +796,23 @@ namespace MobileGL::MG_Util::SelfTest {
                          (instanceChain.empty() ? "" : instanceChain + "; but ") + stage + ": " + detail);
         };
 
+#if defined(__ANDROID__)
+        // Only the Vulkan driver source changes here: run the exact same Driver POST
+        // against Turnip when the plugin UI has it enabled, otherwise system libvulkan.
+        const auto& loaderBootstrap = BackendLoader::EnsureVulkanLoaderInitialized();
+        if (!loaderBootstrap.Initialized) {
+            failInstanceStage("Vulkan loader", "native Vulkan loader bootstrap failed");
+            return;
+        }
+        const PFN_vkGetInstanceProcAddr getInstanceProcAddr = ::vkGetInstanceProcAddr;
+        if (getInstanceProcAddr == nullptr) {
+            failInstanceStage("Vulkan loader", "vkGetInstanceProcAddr is unavailable after loader bootstrap");
+            return;
+        }
+        instanceStageDone(loaderBootstrap.UsingTurnip
+                              ? "Vulkan loader initialized with Turnip"
+                              : "Vulkan loader initialized with system libvulkan");
+#else
         void* loaderLibrary = OpenVulkanLoaderLibrary();
         if (loaderLibrary == nullptr) {
             failInstanceStage("Vulkan loader", "libvulkan.so could not be loaded; no Vulkan loader on this device");
@@ -805,6 +825,7 @@ namespace MobileGL::MG_Util::SelfTest {
             return;
         }
         instanceStageDone("Vulkan loader library loaded and vkGetInstanceProcAddr resolved");
+#endif
 
         const auto vkCreateInstanceFn =
             reinterpret_cast<PFN_vkCreateInstance>(getInstanceProcAddr(nullptr, "vkCreateInstance"));
