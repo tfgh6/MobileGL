@@ -29,6 +29,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Apply the local FastSTL patch
+        run: git -C include/FastSTL apply ../../patches/faststl/0001-erase-key-falls-back-to-iterator.patch
+
       - name: Set artifact metadata
         run: |
           echo "date_today=$(date +'%Y-%m-%d')" >> "$GITHUB_ENV"
@@ -59,17 +62,18 @@ jobs:
           sudo apt-get install -y ccache
           ccache --version
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          accept-android-sdk-licenses: false
-
+      # android-actions/setup-android@v3 fails now that Google removed the legacy
+      # "tools" package from the SDK repository ("Failed to find package 'tools'").
+      # The GitHub-hosted runner already ships the SDK and sdkmanager, so use those.
       - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses >/dev/null
+        run: |
+          SDKMANAGER="$(command -v sdkmanager || echo "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager")"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
 
       - name: Install Android NDK
         run: |
-          sdkmanager "ndk;27.3.13750724"
+          SDKMANAGER="$(command -v sdkmanager || echo "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager")"
+          "$SDKMANAGER" "ndk;27.3.13750724"
           echo "ndk.dir=$ANDROID_HOME/ndk/27.3.13750724" >> android-plugin/local.properties
 
       - name: Update glslang external sources
