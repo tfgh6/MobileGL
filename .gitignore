@@ -36,3 +36,6 @@ tools/trace_replay/work/
 /dist/
 /.tools/
 *.log
+
+# Reference copies of upstream docs/code (not part of the plugin build)
+/docs/upstream-26.11/
