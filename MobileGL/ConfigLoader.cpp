@@ -153,13 +153,43 @@ namespace MobileGL::MG_ConfigLoader {
         return it != acceptedEnvVariablesMap->end() && IsTruthyValue(it->second);
     }
 
+    // Newer MobileGL releases renamed a few feature keys. The plugin UI and launcher config
+    // are written against the current names, while this branch still ships the older core,
+    // so accept both spellings: the preferred (new) key wins when present, and the legacy
+    // key remains the fallback for older configs and README examples.
+    static Bool QueryEnvFlagWithFallback(const char* preferredKey, const char* legacyKey) {
+        if (acceptedEnvVariablesMap->find(preferredKey) != acceptedEnvVariablesMap->end()) {
+            return QueryEnvFlag(preferredKey);
+        }
+        return QueryEnvFlag(legacyKey);
+    }
+
+    // MOBILEGL_SUBGROUP_EMULATION (Auto/ForceOn/ForceOff) replaced the boolean
+    // MOBILEGL_DISABLE_SUBGROUP flag. Map the string form back so "ForceOff" still disables
+    // hardware subgroup use on this core. The explicit boolean keeps precedence because it
+    // is the more specific user choice.
+    static Bool QuerySubgroupDisabled() {
+        if (acceptedEnvVariablesMap->find("MOBILEGL_DISABLE_SUBGROUP") != acceptedEnvVariablesMap->end()) {
+            return QueryEnvFlag("MOBILEGL_DISABLE_SUBGROUP");
+        }
+        auto it = acceptedEnvVariablesMap->find("MOBILEGL_SUBGROUP_EMULATION");
+        if (it == acceptedEnvVariablesMap->end()) {
+            return false;
+        }
+        String value = it->second;
+        std::transform(value.begin(), value.end(), value.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return value == "forceoff" || value == "off" || value == "disable" || value == "disabled";
+    }
+
     inline void InitFeatures() {
         auto& features = MG_Config::Features;
         features.DisableTimerQuery = QueryEnvFlag("MOBILEGL_DISABLE_TIMERQUERY");
         features.RetraceUseAngle = QueryEnvFlag("MOBILEGL_RETRACE_USE_ANGLE");
         QueryEnvVariable("MOBILEGL_RETRACE_ANGLE_DIR", features.RetraceAngleDir, "");
-        features.DisableSubgroup = QueryEnvFlag("MOBILEGL_DISABLE_SUBGROUP");
-        features.VulkanR11G11B10FFallback = QueryEnvFlag("MOBILEGL_VULKAN_R11G11B10F_FALLBACK");
+        features.DisableSubgroup = QuerySubgroupDisabled();
+        features.VulkanR11G11B10FFallback =
+            QueryEnvFlagWithFallback("MOBILEGL_MAGMA_R11G11B10F_FALLBACK", "MOBILEGL_VULKAN_R11G11B10F_FALLBACK");
         features.GlesPresentStats = QueryEnvFlag("MOBILEGL_GLES_PRESENT_STATS");
         features.AvoidAngleLlvmpipeSamplerMipmapMinFilter =
             QueryEnvFlag("MOBILEGL_ANGLE_LLVMPIPE_AVOID_SAMPLER_MIPMAP_MIN_FILTER");

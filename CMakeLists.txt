@@ -90,6 +90,41 @@ configure_file(
     @ONLY
 )
 
+# MGGitHash.h is generated at configure time, so checking out a new commit without
+# re-running CMake would leave a stale hash compiled into the binary (the Android APKs
+# reported an older GIT@ id than the sources they were built from). Make CMake re-run
+# whenever HEAD or the current branch ref changes so the reported version always matches
+# the code that was actually compiled.
+execute_process(
+    COMMAND git rev-parse --git-dir
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_DIR
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if (GIT_DIR)
+    get_filename_component(GIT_DIR "${GIT_DIR}" ABSOLUTE BASE_DIR "${CMAKE_SOURCE_DIR}")
+    set(_mobilegl_configure_deps "")
+    foreach(_candidate "${GIT_DIR}/HEAD" "${GIT_DIR}/packed-refs")
+        if (EXISTS "${_candidate}")
+            list(APPEND _mobilegl_configure_deps "${_candidate}")
+        endif()
+    endforeach()
+    if (EXISTS "${GIT_DIR}/HEAD")
+        file(READ "${GIT_DIR}/HEAD" _mobilegl_git_head)
+        string(STRIP "${_mobilegl_git_head}" _mobilegl_git_head)
+        if (_mobilegl_git_head MATCHES "^ref: (.+)$")
+            set(_mobilegl_branch_ref "${GIT_DIR}/${CMAKE_MATCH_1}")
+            if (EXISTS "${_mobilegl_branch_ref}")
+                list(APPEND _mobilegl_configure_deps "${_mobilegl_branch_ref}")
+            endif()
+        endif()
+    endif()
+    if (_mobilegl_configure_deps)
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_mobilegl_configure_deps})
+    endif()
+endif()
+
 include_directories(${CMAKE_BINARY_DIR}/generated)
 
 set(ENABLE_RTTI                ON  CACHE BOOL "Enables RTTI (will be took by glslang)" FORCE)
