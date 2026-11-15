@@ -799,6 +799,9 @@ namespace MobileGL::MG_Util::SelfTest {
 #if defined(__ANDROID__)
         // Only the Vulkan driver source changes here: run the exact same Driver POST
         // against Turnip when the plugin UI has it enabled, otherwise system libvulkan.
+        // Drop any bootstrap result cached earlier in this process when Turnip was toggled
+        // after launch, so the report shows the current configuration without a restart.
+        BackendLoader::RefreshVulkanLoaderBootstrapIfConfigChanged();
         const auto& loaderBootstrap = BackendLoader::EnsureVulkanLoaderInitialized();
         if (!loaderBootstrap.Initialized) {
             failInstanceStage("Vulkan loader", "native Vulkan loader bootstrap failed");

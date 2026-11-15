@@ -43,5 +43,13 @@ namespace MobileGL::MG_Util::BackendLoader {
     // process-private cache directory before libadrenotools sees them. Every failure is
     // logged and falls back to the system loader; this function never throws.
     const VulkanLoaderBootstrapResult& EnsureVulkanLoaderInitialized();
+
+    // Drops the cached bootstrap result when MOBILEGL_TURNIP_ENABLED changed since the last
+    // attempt, so a later EnsureVulkanLoaderInitialized() re-reads the current configuration.
+    // The Driver POST calls this before its Vulkan stage: the user may toggle Turnip after
+    // the app process already initialized the loader, and the report must reflect the
+    // current choice without an app restart. An unchanged setting keeps the cached result,
+    // which avoids reopening an already-initialized driver on every POST.
+    void RefreshVulkanLoaderBootstrapIfConfigChanged();
 } // namespace MobileGL::MG_Util::BackendLoader
 #endif

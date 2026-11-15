@@ -163,8 +163,8 @@ static int read_config(char *mode, size_t mode_len, char *so, size_t so_len) {
         }
     }
     fclose(file);
-    // A present config file must opt in explicitly. A missing file keeps the
-    // historical default (load SFPEW), which is what shipped builds relied on.
+    // A missing config file falls back to the direct MobileGL path: SFPEW is opt-in since
+    // the proxy became the default renderer entry point.
     if (!mode[0]) snprintf(mode, mode_len, "direct");
     LOGI("config %s: RENDERER_MODE=%s RENDERER_SO=%s", path, mode, so[0] ? so : "(bundled)");
     return 1;
@@ -242,7 +242,15 @@ __attribute__((constructor)) static void init_renderer_proxy(void) {
         } else {
             sibling_path("libMobileGL.so", backend_path, sizeof(backend_path));
         }
-        setenv("SFPEW_EGL", backend_path, 1);
+        // runtime.conf may pick the SFPEW backend (libMobileGL.so / libEGL.so); an explicit
+        // value wins, otherwise default to the bundled MobileGL library. Forcing the default
+        // unconditionally used to make the UI's backend choice a no-op.
+        const char *configured_egl = getenv("SFPEW_EGL");
+        if (configured_egl && configured_egl[0]) {
+            snprintf(backend_path, sizeof(backend_path), "%s", configured_egl);
+        } else {
+            setenv("SFPEW_EGL", backend_path, 1);
+        }
         if (target) {
             LOGI("SFPEW enabled: %s loaded, backend=%s", sfpew_path, backend_path);
         } else {

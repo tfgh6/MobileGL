@@ -22,6 +22,7 @@
 #include <cstring>
 #include <ctime>
 #include <fstream>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -543,14 +544,23 @@ namespace MobileGL::MG_Util::BackendLoader {
         }
     } // namespace
 
-    const VulkanLoaderBootstrapResult& EnsureVulkanLoaderInitialized() {
-        static VulkanLoaderBootstrapResult result;
-        static Bool attempted = false;
-        if (attempted) {
-            return result;
-        }
-        attempted = true;
+    // The bootstrap is memoized: the renderer, the Driver POST and the plugin all ask for the
+    // same process-wide loader. The mutex keeps first-use initialization and the explicit
+    // reset from the POST (see ResetVulkanLoaderBootstrap) from racing each other.
+    namespace {
+        std::mutex g_loaderBootstrapMutex;
+        VulkanLoaderBootstrapResult g_loaderBootstrapResult;
+        Bool g_loaderBootstrapAttempted = false;
+    } // namespace
 
+    const VulkanLoaderBootstrapResult& EnsureVulkanLoaderInitialized() {
+        const std::lock_guard<std::mutex> lock(g_loaderBootstrapMutex);
+        if (g_loaderBootstrapAttempted) {
+            return g_loaderBootstrapResult;
+        }
+        g_loaderBootstrapAttempted = true;
+
+        VulkanLoaderBootstrapResult& result = g_loaderBootstrapResult;
         if (TryOpenTurnipDriver(result)) {
             return result;
         }
@@ -569,6 +579,27 @@ namespace MobileGL::MG_Util::BackendLoader {
             DiagLog("using system libvulkan loader (volk)");
         }
         return result;
+    }
+
+    void RefreshVulkanLoaderBootstrapIfConfigChanged() {
+        String enabledValue;
+        const char* enabledSource = "unset";
+        const Bool enabledFound = ResolveSetting(kTurnipEnabledKey, enabledValue, enabledSource);
+        const Bool requestedNow = enabledFound && IsTruthy(enabledValue);
+
+        const std::lock_guard<std::mutex> lock(g_loaderBootstrapMutex);
+        if (!g_loaderBootstrapAttempted) {
+            // Nothing is cached yet; the next EnsureVulkanLoaderInitialized() reads the
+            // current configuration by itself.
+            return;
+        }
+        if (g_loaderBootstrapResult.TurnipRequested == requestedNow) {
+            return;
+        }
+        MGLOG_I("Turnip: configuration changed (%s through %s); reinitializing the Vulkan loader",
+                requestedNow ? "enabled" : "disabled", enabledSource);
+        g_loaderBootstrapResult = VulkanLoaderBootstrapResult{};
+        g_loaderBootstrapAttempted = false;
     }
 } // namespace MobileGL::MG_Util::BackendLoader
 

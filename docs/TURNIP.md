@@ -18,7 +18,7 @@ APK 内置 **Banners-Turnip v27.0.0-20261114-r2** 的 4 个 Android arm64-v8a �
 - 从 GlInfoProbe / Driver POST / GL renderer 解析 Adreno 数字型号；
 - 710 / 720 / 722 → `710_720`；
 - 750 / 8xx → `a8xx`；
-- 740 且三星 OneUI → `8g2_oneui`，其他 740 → `generic`；
+- 740 且三星 OneUI 设备 → `8g2_oneui`，其他 740 → `generic`（代码按三星厂商判定；目前 740 的三星机型均为 OneUI）；
 - 其他 Adreno → `generic`；
 - 非 Adreno 禁用 Turnip。
 
@@ -56,7 +56,7 @@ UI 可手动切换内置变体；外部导入仍标实验。
 ## 回退测试
 
 - 关闭开关 → 系统 Vulkan。
-- 改坏/删除 `MOBILEGL_TURNIP_PATH` → 回退系统 Vulkan。
+- 删除 `MOBILEGL_TURNIP_PATH`（保留 `MOBILEGL_TURNIP_ENABLED=1`）→ 回退到内置 `libturnip_generic.so`；路径存在但无效/加载失败才回退系统 Vulkan。
 - 非 Adreno 设备开关应禁用。
 - 手动切换每个内置变体，确认不崩溃并回退。
 
@@ -64,7 +64,8 @@ UI 可手动切换内置变体；外部导入仍标实验。
 
 - 驱动自检仍使用官方 Driver POST 的检查项和判定，不额外增加 Turnip 专用行。
 - 只切换 Vulkan loader：Turnip 开启时自检通过 Turnip，关闭时使用系统 libvulkan。
-- 自检进程会缓存 Vulkan loader；切换 Turnip 后应重启一次 App 再运行自检。
+- 自检开始前会重新读取 `MOBILEGL_TURNIP_ENABLED`；切换开关后直接重跑自检即可，无需重启 App（游戏渲染进程仍需重启游戏才能换驱动）。
+- 自检的 “Vulkan loader initialized with Turnip / with system libvulkan” 一行显示本次实际使用的驱动来源。
 
 ## 诊断日志（无需电脑）
 
