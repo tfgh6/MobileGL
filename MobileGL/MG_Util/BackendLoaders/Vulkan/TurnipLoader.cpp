@@ -34,6 +34,9 @@ namespace MobileGL::MG_Util::BackendLoader {
         // The game process is not attached to a PC when testers try Turnip, so the
         // bootstrap decisions are duplicated into a shared file that the plugin UI
         // can read and share. UI creates the directory before launch.
+        // Opt-in file diagnostics controlled by MOBILEGL_DIAG_LOG_ENABLED. The proxy
+        // normally setenv()s this from runtime.conf; the file fallback keeps the self-test
+        // working when it runs in the plugin process without libRendererProxy.
         Bool DiagEnabled() {
             const char* environmentValue = std::getenv("MOBILEGL_DIAG_LOG_ENABLED");
             if (environmentValue != nullptr && environmentValue[0] != '\0') {
@@ -53,6 +56,9 @@ namespace MobileGL::MG_Util::BackendLoader {
             return false;
         }
 
+        // Appends one line to the shared game log. The plugin UI reads this file when the
+        // tester taps "share log"; a failed write is intentionally silent so logging can
+        // never take down rendering. The file is rotated at 512 KiB.
         void DiagLog(const char* fmt, ...) {
             if (!DiagEnabled()) {
                 return;
@@ -340,6 +346,9 @@ namespace MobileGL::MG_Util::BackendLoader {
             return output.good();
         }
 
+        // /sdcard is mounted noexec and is not readable by every launcher process. Copy an
+        // imported driver into the current process's private cache and hand that path to
+        // libadrenotools. A failed copy only disables the external driver, never the game.
         Bool StageExternalDriver(const String& sourcePath, String& outDirectory, String& outName) {
             const String stagingDirectory = FindWritablePrivateDirectory();
             if (stagingDirectory.empty()) {
@@ -360,6 +369,9 @@ namespace MobileGL::MG_Util::BackendLoader {
             return true;
         }
 
+        // Precedence: explicit MOBILEGL_TURNIP_PATH, then the generic bundled fallback.
+        // The UI writes the GPU-specific bundled variant as an absolute path, so the
+        // fallback is only used for old configs or a malformed path.
         Bool ResolveTurnipDriverPath(const String& nativeLibraryDirectory, String& outPath, const char*& outSource) {
             String configuredPath;
             const char* pathSource = "unset";
@@ -389,6 +401,8 @@ namespace MobileGL::MG_Util::BackendLoader {
             return true;
         }
 
+        // One attempt at the Turnip path. Every early return is a deliberate fallback to
+        // the system loader; the caller only needs Initialized/UsingTurnip for reporting.
         Bool TryOpenTurnipDriver(VulkanLoaderBootstrapResult& result) {
             String enabledValue;
             const char* enabledSource = "unset";

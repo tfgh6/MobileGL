@@ -60,6 +60,21 @@ UI 可手动切换内置变体；外部导入仍标实验。
 - 非 Adreno 设备开关应禁用。
 - 手动切换每个内置变体，确认不崩溃并回退。
 
+## 驱动自检
+
+- 驱动自检仍使用官方 Driver POST 的检查项和判定，不额外增加 Turnip 专用行。
+- 只切换 Vulkan loader：Turnip 开启时自检通过 Turnip，关闭时使用系统 libvulkan。
+- 自检进程会缓存 Vulkan loader；切换 Turnip 后应重启一次 App 再运行自检。
+
+## 诊断日志（无需电脑）
+
+- 入口：信息 → 诊断日志。
+- 默认关闭；打开“记录诊断日志”后才写日志。
+- UI：`/sdcard/MobileGL/logs/ui.log`（无存储权限时回退 App 私有目录）。
+- 游戏进程：`/sdcard/MobileGL/logs/game.log`，记录选择变体、hook 目录、adrenotools 成功/失败和回退原因。
+- 分享日志通过 FileProvider 发送一个 `.txt` 文件，不受聊天软件文本长度限制，内容包含设备/GPU/变体配置与两份日志尾部。
+- 日志 512 KiB 轮转；runtime.conf 写入 `MOBILEGL_DIAG_LOG_ENABLED=0|1`。
+
 ## 当前限制
 
 - 尚未在真实 Adreno 上端到端验证；构建/静态校验已通过。

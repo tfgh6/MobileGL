@@ -19,6 +19,8 @@ namespace MobileGL::MG_Util::BackendLoader {
         // True when the Vulkan entry points were taken from a Turnip driver opened through
         // libadrenotools instead of the system libvulkan loader.
         Bool UsingTurnip = false;
+        // Absolute driver path and hookLibDir actually used. Both stay empty when the
+        // system loader won; they are copied for POST/diagnostics reporting only.
         String TurnipDriverPath;
         String HookLibraryDir;
         VkResult VolkResult = VK_ERROR_INITIALIZATION_FAILED;
@@ -34,8 +36,9 @@ namespace MobileGL::MG_Util::BackendLoader {
     //      the values before libMobileGL.so was loaded.
     //   2. The system libvulkan loader through volkInitialize().
     //
-    // The hook library directory is always the directory that contains libMobileGL.so
-    // (the plugin's nativeLibraryDir); libadrenotools is loaded from the same directory.
+    // The hook library directory is resolved, in order, from MOBILEGL_TURNIP_HOOK_DIR,
+    // the directory containing libMobileGL.so (the plugin's nativeLibraryDir), or the
+    // bundled driver's directory. libadrenotools is statically linked into libMobileGL.
     // External drivers outside app-private storage (e.g. /sdcard) are staged into the
     // process-private cache directory before libadrenotools sees them. Every failure is
     // logged and falls back to the system loader; this function never throws.

@@ -22,6 +22,10 @@
 #include "proxy_symbols.h"
 
 #define TAG "RendererProxy"
+// Optional shared diagnostics. The plugin UI writes MOBILEGL_DIAG_LOG_ENABLED into
+// runtime.conf; read_config() propagates it with setenv(), so a disabled toggle is a
+// zero-cost path here (no fopen). The game process usually cannot read logcat from the
+// plugin, so this file is what the in-app "share log" screen uploads.
 #define DIAG_LOG_DIR "/sdcard/MobileGL/logs"
 #define DIAG_LOG_FILE DIAG_LOG_DIR "/game.log"
 
