@@ -37,7 +37,7 @@ jobs:
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-26 \
             -DCMAKE_BUILD_TYPE=Release \
-            -DMOBILEGL_ENABLE_LTO=OFF \
+            -DMOBILEGL_ENABLE_LTO=ON \
             -DMOBILEGL_BUILD_TEST=OFF \
             -DMOBILEGL_BUILD_BENCHMARK=OFF \
             -DCMAKE_SHARED_LINKER_FLAGS="-Wl,-z,max-page-size=16384"
@@ -70,4 +70,5 @@ jobs:
           name: libMobileGL-official-16k
           path: libMobileGL-official-16k.so
           if-no-files-found: error
+
 
