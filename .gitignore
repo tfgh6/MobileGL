@@ -33,4 +33,6 @@ tools/trace_replay/work/
 /latest_mobilegl_artifact.zip
 /turnip/
 /android-plugin/dist/
+/dist/
+/.tools/
 *.log
